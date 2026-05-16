@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Stiq — a high-density browser-based stock ticker for tracking markets and individual equities." />
+  <title>Stiq — Stock Ticker</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet" />
+
+  <!-- Compiled Tailwind CSS -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- ApexCharts -->
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts@4/dist/apexcharts.min.js"></script>
+
+</head>
+
+<body class="bg-surface-900 text-text-primary font-mono min-h-screen antialiased" x-data="stiq()" x-init="init()">
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- HEADER -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <header class="border-b border-border px-4 py-2 flex items-center justify-between">
+    <h1 class="text-accent-cyan font-sans font-bold text-lg tracking-wide">STIQ</h1>
+    <div class="flex items-center gap-4 text-xs text-text-muted">
+      <span x-show="lastUpdated" x-text="'Updated: ' + lastUpdated"></span>
+      <span class="inline-block w-2 h-2 rounded-full" :class="marketOpen ? 'bg-gain animate-pulse' : 'bg-loss'"></span>
+      <span x-text="marketOpen ? 'Market Open' : 'Market Closed'" class="uppercase tracking-widest text-[10px]"></span>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- MARKET OVERVIEW BAR -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <section id="market-bar" class="bg-surface-800 border-b border-border px-4 py-3">
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-2 text-xs">
+      <template x-for="item in marketData" :key="item.name">
+        <div class="flex items-baseline justify-between gap-2 min-w-0">
+          <span class="text-text-muted truncate" x-text="item.name"></span>
+          <div class="flex items-baseline gap-1.5 font-mono tabular-nums">
+            <span class="text-text-primary font-medium" x-text="item.value"></span>
+            <span class="text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
+              x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+    <p x-show="marketData.length === 0" class="text-text-muted text-xs italic">Loading market data…</p>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- WATCHLIST -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <main class="px-4 py-3">
+    <!-- Add Quote -->
+    <div class="flex items-center gap-2 mb-3">
+      <input id="quote-input" type="text" placeholder="Add quote (e.g. AAPL)"
+        class="bg-surface-700 border border-border text-text-primary text-xs font-mono px-3 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-accent-blue placeholder:text-text-muted w-48"
+        x-model="newQuote" @keydown.enter="addQuote()" />
+      <button id="add-quote-btn"
+        class="bg-accent-blue/20 text-accent-blue text-xs font-sans font-medium px-3 py-1.5 rounded hover:bg-accent-blue/30 transition-colors"
+        @click="addQuote()">+ Add</button>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs" id="quotes-table">
+        <thead>
+          <tr class="text-text-muted uppercase tracking-wider text-[10px] border-b border-border">
+            <th class="text-left py-2 pr-4 font-medium">Quote</th>
+            <th class="text-right py-2 px-2 font-medium">Last</th>
+            <th class="text-right py-2 px-2 font-medium">Change</th>
+            <th class="text-right py-2 px-2 font-medium">Change%</th>
+            <th class="text-right py-2 px-2 font-medium">Open</th>
+            <th class="text-right py-2 px-2 font-medium">High</th>
+            <th class="text-right py-2 px-2 font-medium">Low</th>
+            <th class="text-right py-2 px-2 font-medium">Volume</th>
+            <th class="text-center py-2 px-2 font-medium w-28">30d</th>
+            <th class="text-center py-2 px-2 font-medium w-8"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(q, idx) in quoteData" :key="q.quote">
+            <tr class="border-b border-border/50 hover:bg-surface-700/50 transition-colors"
+              :class="idx % 2 === 0 ? 'bg-surface-800/30' : ''">
+              <td class="py-1.5 pr-4 font-semibold text-accent-cyan" x-text="q.quote"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums" x-text="q.last"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums font-medium"
+                :class="parseFloat(q.change) >= 0 ? 'text-gain' : 'text-loss'" x-text="q.change"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums font-medium"
+                :class="parseFloat(q.changePct) >= 0 ? 'text-gain' : 'text-loss'" x-text="q.changePct + '%'"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.open"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.high"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.low"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.volume"></td>
+              <td class="py-1.5 px-2">
+                <div :id="'spark-' + q.quote" class="h-6 w-28"></div>
+              </td>
+              <td class="py-1.5 px-2 text-center">
+                <button class="text-text-muted hover:text-loss transition-colors text-sm" @click="removeQuote(q.quote)"
+                  title="Remove">✕</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <p x-show="quotes.length === 0" class="text-text-muted text-xs italic mt-4">
+      No quotes in your watchlist. Add one above to get started.
+    </p>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <!-- FOOTER -->
+  <!-- ═══════════════════════════════════════════════════════════ -->
+  <footer
+    class="fixed bottom-0 inset-x-0 border-t border-border bg-surface-900/90 backdrop-blur px-4 py-1.5 text-[10px] text-text-muted flex justify-between">
+    <div class="flex items-center gap-2">
+      <span x-text="'Refreshed ' + lastUpdated"></span>
+      <span class="text-border">|</span>
+      <span>Interval:</span>
+      <select 
+        class="bg-transparent border-none text-[10px] text-text-primary focus:ring-0 cursor-pointer p-0" 
+        x-model="pollInterval" 
+        @change="setPollInterval($event.target.value)"
+      >
+        <option value="15" class="bg-surface-800 text-text-primary">15s</option>
+        <option value="30" class="bg-surface-800 text-text-primary">30s</option>
+        <option value="60" class="bg-surface-800 text-text-primary">1m</option>
+        <option value="300" class="bg-surface-800 text-text-primary">5m</option>
+        <option value="600" class="bg-surface-800 text-text-primary">10m</option>
+      </select>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+
+</html>

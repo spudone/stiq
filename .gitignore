@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Tailwind standalone binaries
+tailwindcss
+tailwindcss.exe
+
+# Compiled CSS (regenerated from input.css)
+web/style.css
+
+# PyInstaller / Distribution
+build/
+dist/
+*.spec
