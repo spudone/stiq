@@ -27,17 +27,29 @@
 
 /* Flash animations for price changes */
 @keyframes flash-gain {
-  0% { background-color: var(--color-gain-dim); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: var(--color-gain-dim);
+  }
+
+  100% {
+    background-color: transparent;
+  }
 }
+
 @keyframes flash-loss {
-  0% { background-color: var(--color-loss-dim); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: var(--color-loss-dim);
+  }
+
+  100% {
+    background-color: transparent;
+  }
 }
 
 .flash-gain {
   animation: flash-gain 1.5s ease-out;
 }
+
 .flash-loss {
   animation: flash-loss 1.5s ease-out;
 }

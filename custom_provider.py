@@ -1,30 +1,16 @@
 import sys
 import json
-import re
 import urllib.request
 import urllib.parse
 import gzip
 import io
 from http.cookiejar import CookieJar
-from datetime import datetime
-import pytz
+
+from provider_utils import MARKET_TICKERS, build_quote_row, build_market_index, is_market_open, get_cached_history, set_cached_history
 
 # ── Cache ────────────────────────────────────────────────────────
 _market_cache = None
 _quotes_cache = {}
-
-MARKET_TICKERS = {
-    "Dow":      "^DJI",
-    "Nasdaq":   "^IXIC",
-    "S&P 500":  "^GSPC",
-    "Russell":  "^RUT",
-    "10Y Yield": "^TNX",
-    "Oil":      "CL=F",
-    "Gold":     "GC=F",
-    "EUR/USD":  "EURUSD=X",
-    "BTC":      "BTC-USD",
-    "VIX":      "^VIX",
-}
 
 _USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -42,6 +28,29 @@ class YahooProvider:
             with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
                 data = f.read()
         return data.decode('utf-8')
+
+    def _get_headers(self, content_type='application/json', include_origin=True):
+        headers = {
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+            'Content-Type': content_type,
+            'Host': 'query1.finance.yahoo.com',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-site',
+            'TE': 'trailers',
+        }
+        if include_origin:
+            headers['Origin'] = 'https://finance.yahoo.com'
+            headers['Referer'] = 'https://finance.yahoo.com'
+        return headers
+
+    def _query_api(self, url, content_type='application/json'):
+        req = urllib.request.Request(url, headers=self._get_headers(content_type=content_type))
+        resp = self.opener.open(req)
+        return json.loads(self._read_response(resp))
 
     def get_a1_cookie(self):
         for c in self.cookie_jar:
@@ -107,19 +116,11 @@ class YahooProvider:
         print(f"[stiq-custom] Cookies acquired: {[c.name for c in self.cookie_jar]}", file=sys.stderr)
 
         # 2. Fetch Crumb
-        req_crumb = urllib.request.Request("https://query1.finance.yahoo.com/v1/test/getcrumb", headers={
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Content-Type': 'text/plain',
-            'Host': 'query1.finance.yahoo.com',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-            'TE': 'trailers',
-        })
         try:
+            req_crumb = urllib.request.Request(
+                "https://query1.finance.yahoo.com/v1/test/getcrumb",
+                headers=self._get_headers(content_type='text/plain', include_origin=False)
+            )
             resp = self.opener.open(req_crumb)
             self.crumb = self._read_response(resp)
             self.initialized = True
@@ -128,31 +129,25 @@ class YahooProvider:
             print(f"[stiq-custom] Error fetching crumb: {e}", file=sys.stderr)
             return False
 
-    def get_quotes(self, symbols):
+    def get_quotes(self, symbols, include_history=False):
         if not self.initialize() or not symbols:
             return {}
         
         url = f"https://query1.finance.yahoo.com/v7/finance/quote?crumb={self.crumb}&symbols={','.join(symbols)}"
-        
-        req = urllib.request.Request(url, headers={
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Content-Type': 'application/json',
-            'Host': 'query1.finance.yahoo.com',
-            'Origin': 'https://finance.yahoo.com',
-            'Referer': 'https://finance.yahoo.com',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-            'TE': 'trailers',
-        })
         try:
-            resp = self.opener.open(req)
-            data = json.loads(self._read_response(resp))
+            data = self._query_api(url)
             results = data.get('quoteResponse', {}).get('result', [])
-            return {r['symbol']: r for r in results}
+            quotes = {r['symbol']: r for r in results}
+            if include_history:
+                for sym in quotes:
+                    cached = get_cached_history(sym)
+                    if cached is not None:
+                        quotes[sym]['history'] = cached
+                    else:
+                        h = self.get_history(sym)
+                        set_cached_history(sym, h)
+                        quotes[sym]['history'] = h
+            return quotes
         except Exception as e:
             print(f"[stiq-custom] Error fetching quote data: {e}", file=sys.stderr)
             return {}
@@ -162,23 +157,8 @@ class YahooProvider:
             return []
         
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1mo&crumb={self.crumb}"
-        req = urllib.request.Request(url, headers={
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-            'Content-Type': 'application/json',
-            'Host': 'query1.finance.yahoo.com',
-            'Origin': 'https://finance.yahoo.com',
-            'Referer': 'https://finance.yahoo.com',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-site',
-            'TE': 'trailers',
-        })
         try:
-            resp = self.opener.open(req)
-            data = json.loads(self._read_response(resp))
+            data = self._query_api(url)
             result = data.get('chart', {}).get('result', [])
             if result:
                 indicators = result[0].get('indicators', {}).get('quote', [])
@@ -191,77 +171,24 @@ class YahooProvider:
 
 _provider = YahooProvider()
 
-def _fmt_price(val):
-    try:
-        return f"{float(val):,.2f}"
-    except (TypeError, ValueError):
-        return "—"
-
-def _fmt_number(val):
-    try:
-        val = float(val)
-        if abs(val) >= 1000:
-            return f"{val:,.2f}"
-        elif abs(val) >= 1:
-            return f"{val:.2f}"
-        else:
-            return f"{val:.4f}"
-    except (TypeError, ValueError):
-        return "—"
-
-def _fmt_volume(val):
-    try:
-        val = float(val)
-        if val >= 1_000_000_000:
-            return f"{val / 1_000_000_000:.1f}B"
-        elif val >= 1_000_000:
-            return f"{val / 1_000_000:.1f}M"
-        elif val >= 1_000:
-            return f"{val / 1_000:.1f}K"
-        else:
-            return str(int(val))
-    except (TypeError, ValueError):
-        return "—"
+# Formatting functions imported from provider_utils
 
 def fetch_market():
     global _market_cache
     symbols = list(MARKET_TICKERS.values())
     names = list(MARKET_TICKERS.keys())
-    indices = []
 
     try:
         quotes = _provider.get_quotes(symbols)
+        indices = []
 
         for sym, name in zip(symbols, names):
             try:
-                info = quotes.get(sym, {})
-                price = info.get("regularMarketPrice", 0)
-                prev = info.get("regularMarketPreviousClose", 0)
-
-                if prev and prev != 0:
-                    change_pct = ((price - prev) / prev) * 100
-                else:
-                    change_pct = 0.0
-
-                indices.append({
-                    "name": name,
-                    "value": _fmt_number(price),
-                    "change": f"{change_pct:+.2f}",
-                })
+                indices.append(build_market_index(name, quotes.get(sym, {})))
             except Exception:
-                indices.append({
-                    "name": name,
-                    "value": "—",
-                    "change": "0.00",
-                })
+                indices.append({"name": name, "value": "—", "change": "0.00"})
 
-        et = pytz.timezone("US/Eastern")
-        now_et = datetime.now(et)
-        hour = now_et.hour
-        weekday = now_et.weekday()
-        is_open = (weekday < 5) and (9 <= hour < 16)
-
-        result = {"indices": indices, "is_open": is_open}
+        result = {"indices": indices, "is_open": is_market_open()}
         _market_cache = result
         return result
 
@@ -279,35 +206,11 @@ def fetch_quotes(symbols):
 
     results = []
     try:
-        quotes = _provider.get_quotes(symbols)
+        quotes = _provider.get_quotes(symbols, include_history=True)
 
         for sym in symbols:
             try:
-                info = quotes.get(sym, {})
-                
-                price = info.get("regularMarketPrice", 0)
-                prev = info.get("regularMarketPreviousClose", 0)
-                change = price - prev if prev else 0
-                change_pct = info.get("regularMarketChangePercent", 0)
-
-                day_open = info.get("regularMarketOpen", 0)
-                day_high = info.get("regularMarketDayHigh", 0)
-                day_low = info.get("regularMarketDayLow", 0)
-                volume = info.get("regularMarketVolume", 0)
-
-                history = _provider.get_history(sym)
-
-                row = {
-                    "quote": sym.upper(),
-                    "last": _fmt_price(price),
-                    "change": f"{change:+.2f}",
-                    "changePct": f"{change_pct:+.2f}",
-                    "open": _fmt_price(day_open),
-                    "high": _fmt_price(day_high),
-                    "low": _fmt_price(day_low),
-                    "volume": _fmt_volume(volume),
-                    "history": history,
-                }
+                row = build_quote_row(sym, quotes.get(sym, {}))
                 results.append(row)
                 _quotes_cache[sym] = row
 

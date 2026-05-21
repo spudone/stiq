@@ -44,23 +44,51 @@
   </header>
 
   <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
   <!-- MARKET OVERVIEW BAR -->
   <!-- ═══════════════════════════════════════════════════════════ -->
-  <section id="market-bar" class="bg-surface-800 border-b border-border px-4 py-3">
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-6 gap-y-2 text-xs">
-      <template x-for="item in marketData" :key="item.name">
-        <div class="flex items-baseline justify-between gap-2 min-w-0">
-          <span class="text-text-muted truncate" x-text="item.name"></span>
-          <div class="flex items-baseline gap-1.5 font-mono tabular-nums">
-            <span class="text-text-primary font-medium" x-text="item.value"></span>
-            <span class="text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
-              x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
-          </div>
+  <section id="market-bar" class="bg-surface-800 border-b border-border px-4 py-1.5">
+    <!-- Row 1: Dow, S&P 500, NASDAQ -->
+    <div x-show="marketData.length > 0" class="flex flex-wrap gap-x-4 gap-y-1 text-xs mb-1">
+      <template x-for="item in marketData.slice(0, 3)" :key="item.name">
+        <div class="flex items-center gap-1 whitespace-nowrap">
+          <span class="text-text-muted font-medium w-24" x-text="item.name"></span>
+          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="item.value"></span>
+          <span class="font-mono tabular-nums text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
+            x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
         </div>
       </template>
     </div>
+
+    <!-- Row 2: Tokyo, HK, London, Frankfurt -->
+    <div x-show="marketData.length > 3" class="flex flex-wrap gap-x-4 gap-y-1 text-xs mb-1">
+      <template x-for="item in marketData.slice(3, 7)" :key="item.name">
+        <div class="flex items-center gap-1 whitespace-nowrap">
+          <span class="text-text-muted font-medium w-24" x-text="item.name"></span>
+          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="item.value"></span>
+          <span class="font-mono tabular-nums text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
+            x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
+        </div>
+      </template>
+    </div>
+
+    <!-- Row 3: 10-Year Yield, Euro, Yen, Oil, Gold -->
+    <div x-show="marketData.length > 7" class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+      <template x-for="item in marketData.slice(7)" :key="item.name">
+        <div class="flex items-center gap-1 whitespace-nowrap">
+          <span class="text-text-muted font-medium w-24" x-text="item.name"></span>
+          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="item.value"></span>
+          <span class="font-mono tabular-nums text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
+            x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
+        </div>
+      </template>
+    </div>
+
     <p x-show="marketData.length === 0" class="text-text-muted text-xs italic">Loading market data…</p>
   </section>
+
+
+
 
   <!-- ═══════════════════════════════════════════════════════════ -->
   <!-- WATCHLIST -->
@@ -88,7 +116,14 @@
             <th class="text-right py-2 px-2 font-medium">Open</th>
             <th class="text-right py-2 px-2 font-medium">High</th>
             <th class="text-right py-2 px-2 font-medium">Low</th>
+            <th class="text-right py-2 px-2 font-medium">52w Low</th>
+            <th class="text-right py-2 px-2 font-medium">52w High</th>
             <th class="text-right py-2 px-2 font-medium">Volume</th>
+            <th class="text-right py-2 px-2 font-medium">Avg Vol</th>
+            <th class="text-right py-2 px-2 font-medium">P/E</th>
+            <th class="text-right py-2 px-2 font-medium">Div</th>
+            <th class="text-right py-2 px-2 font-medium">Yield</th>
+            <th class="text-right py-2 px-2 font-medium">Mkt Cap</th>
             <th class="text-center py-2 px-2 font-medium w-28">30d</th>
             <th class="text-center py-2 px-2 font-medium w-8"></th>
           </tr>
@@ -106,7 +141,14 @@
               <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.open"></td>
               <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.high"></td>
               <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.low"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.low52"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.high52"></td>
               <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.volume"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.avgVolume"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.peRatio"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.dividend"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.yield !== '—' ? q.yield + '%' : '—'"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.marketCap"></td>
               <td class="py-1.5 px-2">
                 <div :id="'spark-' + q.quote" class="h-6 w-28"></div>
               </td>
