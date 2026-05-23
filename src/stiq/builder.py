@@ -1,6 +1,5 @@
 import pytz
 from datetime import datetime
-from .formatter import formatter
 
 
 class QuoteBuilder:
@@ -47,7 +46,7 @@ class QuoteBuilder:
             "change_pct": change_pct,
         }
 
-    def build_market_index(self, name: str, quote: dict[str, any]) -> dict[str, str]:
+    def build_market_index(self, name: str, quote: dict[str, any]) -> dict[str, any]:
         price = quote.get("price", 0)
         prev = quote.get("prev_close", 0)
         change_pct = quote.get("change_pct")
@@ -55,8 +54,8 @@ class QuoteBuilder:
             change_pct = ((price - prev) / prev * 100) if prev and prev != 0 else 0.0
         return {
             "name": name,
-            "value": formatter.fmt_number(price),
-            "change": f"{change_pct:+.2f}",
+            "value": price,
+            "change": change_pct,
         }
 
     def build_quote_row(self, sym: str, quote: dict[str, any]) -> dict[str, any]:
@@ -67,23 +66,22 @@ class QuoteBuilder:
         if change_pct is None:
             change_pct = ((change / prev) * 100) if prev and prev != 0 else 0
 
-        yield_val = quote.get("dividend_yield")
         return {
             "quote": sym.upper(),
-            "last": formatter.fmt_price(price),
-            "change": f"{change:+.2f}",
-            "changePct": f"{change_pct:+.2f}",
-            "open": formatter.fmt_price(quote.get("open", 0)),
-            "high": formatter.fmt_price(quote.get("high", 0)),
-            "low": formatter.fmt_price(quote.get("low", 0)),
-            "volume": formatter.fmt_volume(quote.get("volume", 0)),
-            "low52": formatter.fmt_price(quote.get("low_52w")),
-            "high52": formatter.fmt_price(quote.get("high_52w")),
-            "avgVolume": formatter.fmt_volume(quote.get("avg_volume")),
-            "peRatio": formatter.fmt_number(quote.get("pe_ratio")),
-            "dividend": formatter.fmt_price(quote.get("dividend_rate")),
-            "yield": f"{float(yield_val) * 100:.2f}" if yield_val is not None else "—",
-            "marketCap": formatter.fmt_large_val(quote.get("market_cap")),
+            "last": price,
+            "change": change,
+            "changePct": change_pct,
+            "open": quote.get("open"),
+            "high": quote.get("high"),
+            "low": quote.get("low"),
+            "volume": quote.get("volume"),
+            "low52": quote.get("low_52w"),
+            "high52": quote.get("high_52w"),
+            "avgVolume": quote.get("avg_volume"),
+            "peRatio": quote.get("pe_ratio"),
+            "dividend": quote.get("dividend_rate"),
+            "yield": quote.get("dividend_yield"),
+            "marketCap": quote.get("market_cap"),
             "currency": quote.get("currency", "USD"),
             "history": quote.get("history", []),
         }

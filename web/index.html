@@ -16,7 +16,7 @@
     rel="stylesheet" />
 
   <!-- Compiled Tailwind CSS -->
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=4" />
 
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
@@ -53,9 +53,9 @@
       <template x-for="item in marketData.slice(0, 3)" :key="item.name">
         <div class="flex items-center gap-1 whitespace-nowrap">
           <span class="text-text-muted font-medium w-24" x-text="item.name"></span>
-          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="item.value"></span>
-          <span class="font-mono tabular-nums text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
-            x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
+          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="fmt.number(item.value)"></span>
+          <span class="font-mono tabular-nums text-[11px]" :class="item.change >= 0 ? 'text-gain' : 'text-loss'"
+            x-text="(item.change >= 0 ? '▲' : '▼') + ' ' + fmt.change(item.change) + '%'"></span>
         </div>
       </template>
     </div>
@@ -65,9 +65,9 @@
       <template x-for="item in marketData.slice(3, 7)" :key="item.name">
         <div class="flex items-center gap-1 whitespace-nowrap">
           <span class="text-text-muted font-medium w-24" x-text="item.name"></span>
-          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="item.value"></span>
-          <span class="font-mono tabular-nums text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
-            x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
+          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="fmt.number(item.value)"></span>
+          <span class="font-mono tabular-nums text-[11px]" :class="item.change >= 0 ? 'text-gain' : 'text-loss'"
+            x-text="(item.change >= 0 ? '▲' : '▼') + ' ' + fmt.change(item.change) + '%'"></span>
         </div>
       </template>
     </div>
@@ -77,9 +77,9 @@
       <template x-for="item in marketData.slice(7)" :key="item.name">
         <div class="flex items-center gap-1 whitespace-nowrap">
           <span class="text-text-muted font-medium w-24" x-text="item.name"></span>
-          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="item.value"></span>
-          <span class="font-mono tabular-nums text-[11px]" :class="parseFloat(item.change) >= 0 ? 'text-gain' : 'text-loss'"
-            x-text="(parseFloat(item.change) >= 0 ? '▲' : '▼') + ' ' + item.change + '%'"></span>
+          <span class="font-mono tabular-nums text-text-primary font-medium w-24" x-text="fmt.number(item.value)"></span>
+          <span class="font-mono tabular-nums text-[11px]" :class="item.change >= 0 ? 'text-gain' : 'text-loss'"
+            x-text="(item.change >= 0 ? '▲' : '▼') + ' ' + fmt.change(item.change) + '%'"></span>
         </div>
       </template>
     </div>
@@ -109,46 +109,76 @@
       <table class="w-full text-xs" id="quotes-table">
         <thead>
           <tr class="text-text-muted uppercase tracking-wider text-[10px] border-b border-border">
-            <th class="text-left py-2 pr-4 font-medium">Quote</th>
-            <th class="text-right py-2 px-2 font-medium">Last</th>
-            <th class="text-right py-2 px-2 font-medium">Change</th>
-            <th class="text-right py-2 px-2 font-medium">Change%</th>
-            <th class="text-right py-2 px-2 font-medium">Open</th>
-            <th class="text-right py-2 px-2 font-medium">High</th>
-            <th class="text-right py-2 px-2 font-medium">Low</th>
-            <th class="text-right py-2 px-2 font-medium">52w Low</th>
-            <th class="text-right py-2 px-2 font-medium">52w High</th>
-            <th class="text-right py-2 px-2 font-medium">Volume</th>
-            <th class="text-right py-2 px-2 font-medium">Avg Vol</th>
-            <th class="text-right py-2 px-2 font-medium">P/E</th>
-            <th class="text-right py-2 px-2 font-medium">Div</th>
-            <th class="text-right py-2 px-2 font-medium">Yield</th>
-            <th class="text-right py-2 px-2 font-medium">Mkt Cap</th>
+            <th class="text-left py-2 pr-4 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('quote')">
+              Quote<span x-show="sortKey === 'quote'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('last')">
+              Last<span x-show="sortKey === 'last'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('change')">
+              Change<span x-show="sortKey === 'change'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('changePct')">
+              Change%<span x-show="sortKey === 'changePct'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('open')">
+              Open<span x-show="sortKey === 'open'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('high')">
+              High<span x-show="sortKey === 'high'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('low')">
+              Low<span x-show="sortKey === 'low'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('low52')">
+              52w Low<span x-show="sortKey === 'low52'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('high52')">
+              52w High<span x-show="sortKey === 'high52'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('volume')">
+              Volume<span x-show="sortKey === 'volume'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('avgVolume')">
+              Avg Vol<span x-show="sortKey === 'avgVolume'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('peRatio')">
+              P/E<span x-show="sortKey === 'peRatio'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('dividend')">
+              Div<span x-show="sortKey === 'dividend'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('yield')">
+              Yield<span x-show="sortKey === 'yield'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
+            <th class="text-right py-2 px-2 font-medium cursor-pointer select-none hover:text-text-primary transition-colors" @click="sortBy('marketCap')">
+              Mkt Cap<span x-show="sortKey === 'marketCap'" x-text="sortAsc ? ' ▲' : ' ▼'" class="text-[8px] font-sans"></span>
+            </th>
             <th class="text-center py-2 px-2 font-medium w-28">30d</th>
             <th class="text-center py-2 px-2 font-medium w-8"></th>
           </tr>
         </thead>
         <tbody>
-          <template x-for="(q, idx) in quoteData" :key="q.quote">
+          <template x-for="(q, idx) in getSortedQuoteData()" :key="q.quote">
             <tr class="border-b border-border/50 hover:bg-surface-700/50 transition-colors"
               :class="idx % 2 === 0 ? 'bg-surface-800/30' : ''">
               <td class="py-1.5 pr-4 font-semibold text-accent-cyan" x-text="q.quote"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums" x-text="q.last"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums" x-text="fmt.price(q.last)"></td>
               <td class="py-1.5 px-2 text-right tabular-nums font-medium"
-                :class="parseFloat(q.change) >= 0 ? 'text-gain' : 'text-loss'" x-text="q.change"></td>
+                :class="q.change >= 0 ? 'text-gain' : 'text-loss'" x-text="fmt.change(q.change)"></td>
               <td class="py-1.5 px-2 text-right tabular-nums font-medium"
-                :class="parseFloat(q.changePct) >= 0 ? 'text-gain' : 'text-loss'" x-text="q.changePct + '%'"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.open"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.high"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.low"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.low52"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.high52"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.volume"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.avgVolume"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.peRatio"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.dividend"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.yield !== '—' ? q.yield + '%' : '—'"></td>
-              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="q.marketCap"></td>
+                :class="q.changePct >= 0 ? 'text-gain' : 'text-loss'" x-text="fmt.change(q.changePct) + '%'"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.price(q.open)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.price(q.high)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.price(q.low)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.price(q.low52)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.price(q.high52)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.volume(q.volume)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.volume(q.avgVolume)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.number(q.peRatio)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.price(q.dividend)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.yieldPct(q.yield)"></td>
+              <td class="py-1.5 px-2 text-right tabular-nums text-text-secondary" x-text="fmt.largeVal(q.marketCap)"></td>
               <td class="py-1.5 px-2">
                 <div :id="'spark-' + q.quote" class="h-6 w-28"></div>
               </td>
@@ -190,7 +220,7 @@
     </div>
   </footer>
 
-  <script src="script.js"></script>
+  <script src="script.js?v=4"></script>
 </body>
 
 </html>

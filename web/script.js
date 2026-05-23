@@ -7,6 +7,56 @@ const STORAGE_KEY = "stiq_quotes";
 const INTERVAL_KEY = "stiq_interval";
 const DEFAULT_INTERVAL = 300; // 5 minutes
 
+// ── Formatting utilities (ported from Python formatter.py) ──
+const fmt = {
+  price(val) {
+    if (val === null || val === undefined) return "\u2014";
+    const n = parseFloat(val);
+    if (isNaN(n)) return "\u2014";
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  },
+  number(val) {
+    if (val === null || val === undefined) return "\u2014";
+    const n = parseFloat(val);
+    if (isNaN(n)) return "\u2014";
+    if (Math.abs(n) >= 1000) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (Math.abs(n) >= 1) return n.toFixed(2);
+    return n.toFixed(4);
+  },
+  volume(val) {
+    if (val === null || val === undefined) return "\u2014";
+    const n = parseFloat(val);
+    if (isNaN(n)) return "\u2014";
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+    return Math.floor(n).toString();
+  },
+  largeVal(val) {
+    if (val === null || val === undefined) return "\u2014";
+    let n = parseFloat(val);
+    if (isNaN(n)) return "\u2014";
+    let unit = "";
+    if (n >= 1e12) { n /= 1e12; unit = "T"; }
+    else if (n >= 1e9) { n /= 1e9; unit = "B"; }
+    else if (n >= 1e6) { n /= 1e6; unit = "M"; }
+    else if (n >= 1e5) { n /= 1e3; unit = "K"; }
+    return n.toFixed(3) + unit;
+  },
+  change(val) {
+    if (val === null || val === undefined) return "\u2014";
+    const n = parseFloat(val);
+    if (isNaN(n)) return "\u2014";
+    return (n >= 0 ? "+" : "") + n.toFixed(2);
+  },
+  yieldPct(val) {
+    if (val === null || val === undefined) return "\u2014";
+    const n = parseFloat(val);
+    if (isNaN(n)) return "\u2014";
+    return (n * 100).toFixed(2) + "%";
+  },
+};
+
 function stiq() {
   return {
     // ── State ──────────────────────────────────────────────
@@ -19,6 +69,8 @@ function stiq() {
     sparkCharts: {},
     pollTimer: null,
     pollInterval: DEFAULT_INTERVAL, // In seconds
+    sortKey: "quote",
+    sortAsc: true,
 
     // ── Init ───────────────────────────────────────────────
     async init() {
@@ -133,7 +185,7 @@ function stiq() {
             this.$nextTick(() => {
               this.quoteData.forEach((q) => {
                 if (q.history && q.history.length > 0) {
-                  this.renderSparkline(q.quote, q.history, parseFloat(q.change) >= 0);
+                  this.renderSparkline(q.quote, q.history, q.change >= 0);
                 }
               });
             });
@@ -148,6 +200,64 @@ function stiq() {
         });
       } catch (err) {
         console.error("Stiq refresh error:", err);
+      }
+    },
+
+    // ── Sorting ───────────────────────────────────────────
+    sortBy(key) {
+      console.log("[stiq] sortBy called with key:", key);
+      try {
+        if (this.sortKey === key) {
+          this.sortAsc = !this.sortAsc;
+        } else {
+          this.sortKey = key;
+          this.sortAsc = true;
+        }
+        console.log("[stiq] sortKey set to:", this.sortKey, "sortAsc:", this.sortAsc);
+        
+        // Force redrawing of sparklines after browser has updated the table DOM layout
+        setTimeout(() => {
+          console.log("[stiq] redrawing sparklines...");
+          this.quoteData.forEach((q) => {
+            if (q.history && q.history.length > 0) {
+              this.renderSparkline(q.quote, q.history, q.change >= 0);
+            }
+          });
+        }, 0);
+      } catch (err) {
+        console.error("[stiq] Error in sortBy:", err);
+      }
+    },
+
+    getSortedQuoteData() {
+      console.log("[stiq] getSortedQuoteData called. sortKey:", this.sortKey, "sortAsc:", this.sortAsc);
+      try {
+        if (!this.sortKey) return this.quoteData;
+        const key = this.sortKey;
+        const sorted = [...this.quoteData].sort((a, b) => {
+          let valA = a[key];
+          let valB = b[key];
+
+          // Push null/undefined to the bottom of the list.
+          const isAEmpty = valA === null || valA === undefined;
+          const isBEmpty = valB === null || valB === undefined;
+
+          if (isAEmpty && isBEmpty) return 0;
+          if (isAEmpty) return 1;
+          if (isBEmpty) return -1;
+
+          if (key === 'quote') {
+            const comp = valA.localeCompare(valB);
+            return this.sortAsc ? comp : -comp;
+          } else {
+            return this.sortAsc ? valA - valB : valB - valA;
+          }
+        });
+        console.log("[stiq] sorted quotes order:", sorted.map(q => q.quote));
+        return sorted;
+      } catch (err) {
+        console.error("[stiq] Error in getSortedQuoteData:", err);
+        return this.quoteData;
       }
     },
 

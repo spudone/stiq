@@ -52,7 +52,7 @@ class YFinanceProvider(DataProvider):
                     normalized = self._normalize_raw_quote(t)
                     indices.append(builder.build_market_index(name, normalized))
                 except Exception:
-                    indices.append({"name": name, "value": "—", "change": "0.00"})
+                    indices.append({"name": name, "value": None, "change": 0.0})
 
             result = {"indices": indices, "is_open": builder.is_market_open()}
             self._market_cache = result
