@@ -24,14 +24,14 @@ build: $(TAILWIND_BIN)
 # Launch the application (custom lightweight provider)
 run: setup
 	@echo "Launching Stiq..."
-	USE_YFINANCE=0 uv run python3 main.py
+	USE_YFINANCE=0 uv run python -m stiq.main
 
 # Launch the application (yfinance provider)
 run-yfinance: setup
 	@echo "Synchronizing heavy yfinance dependencies..."
 	uv sync --extra yfinance
 	@echo "Launching Stiq..."
-	USE_YFINANCE=1 uv run python3 main.py
+	USE_YFINANCE=1 uv run python -m stiq.main
 
 # Create a standalone executable using the custom zero-dependency scraper
 dist: setup build

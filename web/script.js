@@ -22,20 +22,16 @@ function stiq() {
 
     // ── Init ───────────────────────────────────────────────
     async init() {
-      // Load saved quotes from localStorage
-      const savedQuotes = localStorage.getItem(STORAGE_KEY);
-      if (savedQuotes) {
-        try {
-          this.quotes = JSON.parse(savedQuotes);
-        } catch {
-          this.quotes = [];
+      // Load saved configuration from backend
+      try {
+        const resp = await fetch("/api/watchlist");
+        const config = await resp.json();
+        if (config) {
+          this.quotes = config.symbols || [];
+          this.pollInterval = config.poll_interval || DEFAULT_INTERVAL;
         }
-      }
-
-      // Load saved interval
-      const savedInterval = localStorage.getItem(INTERVAL_KEY);
-      if (savedInterval) {
-        this.pollInterval = parseInt(savedInterval) || DEFAULT_INTERVAL;
+      } catch (err) {
+        console.error("Error loading watchlist:", err);
       }
 
       // Initial data fetch
@@ -59,45 +55,60 @@ function stiq() {
       }, this.pollInterval * 1000);
     },
 
-    setPollInterval(seconds) {
+    async setPollInterval(seconds) {
       // Floor at 15 seconds to prevent rate limiting/browser thrashing
       const val = Math.max(15, parseInt(seconds));
-      this.pollInterval = val;
-      localStorage.setItem(INTERVAL_KEY, val);
-      
-      // Restart timer with new interval
-      this.startTimer();
-      console.log(`[stiq] Polling interval updated to ${val}s`);
+      try {
+        const resp = await fetch("/api/watchlist/interval?seconds=" + val, { method: "POST" });
+        const res = await resp.json();
+        if (res && res.success) {
+          this.pollInterval = val;
+          // Restart timer with new interval
+          this.startTimer();
+          console.log(`[stiq] Polling interval updated to ${val}s`);
+        }
+      } catch (err) {
+        console.error("Error setting poll interval:", err);
+      }
     },
 
     // ── Quote Management ─────────────────────────────────
-    addQuote() {
+    async addQuote() {
       const quote = this.newQuote.trim().toUpperCase();
       if (!quote || this.quotes.includes(quote)) {
         this.newQuote = "";
         return;
       }
-      this.quotes.push(quote);
-      this.saveQuotes();
-      this.newQuote = "";
-      this.refresh();
-    },
-
-    removeQuote(quote) {
-      this.quotes = this.quotes.filter((q) => q !== quote);
-      this.quoteData = this.quoteData.filter((q) => q.quote !== quote);
-
-      // Destroy the sparkline chart for this quote
-      if (this.sparkCharts[quote]) {
-        this.sparkCharts[quote].destroy();
-        delete this.sparkCharts[quote];
+      try {
+        const resp = await fetch("/api/watchlist/add?symbol=" + encodeURIComponent(quote), { method: "POST" });
+        const res = await resp.json();
+        if (res && res.success) {
+          this.quotes.push(quote);
+          this.newQuote = "";
+          await this.refresh();
+        }
+      } catch (err) {
+        console.error("Error adding quote:", err);
       }
-
-      this.saveQuotes();
     },
 
-    saveQuotes() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.quotes));
+    async removeQuote(quote) {
+      try {
+        const resp = await fetch("/api/watchlist/remove?symbol=" + encodeURIComponent(quote), { method: "POST" });
+        const res = await resp.json();
+        if (res && res.success) {
+          this.quotes = this.quotes.filter((q) => q !== quote);
+          this.quoteData = this.quoteData.filter((q) => q.quote !== quote);
+
+          // Destroy the sparkline chart for this quote
+          if (this.sparkCharts[quote]) {
+            this.sparkCharts[quote].destroy();
+            delete this.sparkCharts[quote];
+          }
+        }
+      } catch (err) {
+        console.error("Error removing quote:", err);
+      }
     },
 
     // ── Data Fetching ─────────────────────────────────────

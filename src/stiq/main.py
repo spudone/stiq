@@ -3,27 +3,21 @@ Stiq — High-density browser-based stock ticker.
 Lightweight HTTP server with system browser, modular data providers.
 """
 
-import sys
-import os
 import json
-import importlib
+import os
+import shutil
+import subprocess
+import sys
 import threading
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-
-# ── Data Provider ────────────────────────────────────────────────
-
-if os.environ.get("USE_YFINANCE") == "1":
-    provider = importlib.import_module("yfinance_provider")
-else:
-    try:
-        provider = importlib.import_module("custom_provider")
-    except ModuleNotFoundError:
-        provider = importlib.import_module("yfinance_provider")
+from stiq.provider import get_provider
+from stiq.config import config
 
 
-# ── API Request Handler ─────────────────────────────────────────
+provider = get_provider()
+
 
 def resource_path(relative_path):
     """Get absolute path to resource, works for dev and for PyInstaller."""
@@ -51,6 +45,10 @@ class StiqHandler(SimpleHTTPRequestHandler):
             symbols = qs.get("symbols", [""])[0]
             symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
             self._json_response(provider.fetch_quotes(symbol_list))
+        elif parsed.path == "/api/watchlist":
+            self._json_response(
+                {"symbols": config.watchlist, "poll_interval": config.poll_interval}
+            )
         elif parsed.path == "/api/shutdown":
             self.send_response(200)
             self.end_headers()
@@ -62,7 +60,34 @@ class StiqHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path == "/api/shutdown":
+        if parsed.path == "/api/watchlist/add":
+            qs = parse_qs(parsed.query)
+            symbol = qs.get("symbol", [""])[0].strip()
+            if symbol:
+                config.add(symbol)
+                self._json_response({"success": True})
+            else:
+                self.send_error(400, "Missing symbol parameter")
+        elif parsed.path == "/api/watchlist/remove":
+            qs = parse_qs(parsed.query)
+            symbol = qs.get("symbol", [""])[0].strip()
+            if symbol:
+                config.remove(symbol)
+                self._json_response({"success": True})
+            else:
+                self.send_error(400, "Missing symbol parameter")
+        elif parsed.path == "/api/watchlist/interval":
+            qs = parse_qs(parsed.query)
+            seconds_str = qs.get("seconds", [""])[0].strip()
+            if seconds_str:
+                try:
+                    config.set_interval(int(seconds_str))
+                    self._json_response({"success": True})
+                except ValueError:
+                    self.send_error(400, "Invalid seconds value")
+            else:
+                self.send_error(400, "Missing seconds parameter")
+        elif parsed.path == "/api/shutdown":
             self.send_response(200)
             self.end_headers()
             print("\n[stiq] Browser window closed. Shutting down…")
@@ -81,26 +106,29 @@ class StiqHandler(SimpleHTTPRequestHandler):
         # Silence per-request logging
         pass
 
-import subprocess
-import shutil
 
 def launch_app_window(url):
     """Try to launch an app-like window using Chrome/Edge, fallback to default browser."""
     executables = [
-        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "msedge", "microsoft-edge",
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "msedge",
+        "microsoft-edge",
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
     ]
-    
+
     app_cmd = None
     for exe in executables:
         if shutil.which(exe) or os.path.exists(exe):
             app_cmd = shutil.which(exe) or exe
             break
-            
+
     if app_cmd:
         try:
             print(f"[stiq] Launching app window using {app_cmd}…")
@@ -108,16 +136,18 @@ def launch_app_window(url):
             subprocess.Popen(
                 [app_cmd, f"--app={url}", "--window-size=1280,720"],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                stderr=subprocess.DEVNULL,
             )
             return
         except Exception as e:
             print(f"[stiq] Failed to launch app window: {e}")
-            
+
     print("[stiq] Chrome/Edge not found, falling back to default browser…")
     webbrowser.open(url)
 
+
 # ── Application Entry ───────────────────────────────────────────
+
 
 def main():
     port = 8123
@@ -139,6 +169,7 @@ def main():
     except KeyboardInterrupt:
         print("\n[stiq] Shutting down…")
         server.shutdown()
+
 
 if __name__ == "__main__":
     main()
