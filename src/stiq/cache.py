@@ -36,19 +36,17 @@ class CacheManager:
         except Exception:
             pass
 
+    def get_history(self, sym: str) -> list[float] | None:
+        entry = self.history.get(sym.upper())
+        today = date.today().isoformat()
+        if entry and entry[0] == today:
+            return entry[1]
+        return None
+
+    def set_history(self, sym: str, history: list[float]) -> None:
+        self.history[sym.upper()] = (date.today().isoformat(), history)
+        self.save()
+
 
 # Shared global cache instance
-_cache = CacheManager()
-
-
-def get_cached_history(sym: str) -> list[float] | None:
-    entry = _cache.history.get(sym.upper())
-    today = date.today().isoformat()
-    if entry and entry[0] == today:
-        return entry[1]
-    return None
-
-
-def set_cached_history(sym: str, history: list[float]) -> None:
-    _cache.history[sym.upper()] = (date.today().isoformat(), history)
-    _cache.save()
+cache = CacheManager()

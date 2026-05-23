@@ -8,23 +8,16 @@ import urllib.request
 from http.cookiejar import CookieJar
 
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
-from .cache import get_cached_history, set_cached_history
-from .builder import (
-    build_market_index,
-    build_quote_row,
-    is_market_open,
-    make_normalized_quote,
-)
-
-# ── Cache ────────────────────────────────────────────────────────
-_market_cache = None
-_quotes_cache = {}
+from .cache import cache
+from .builder import builder
 
 _DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
 class YahooProvider(DataProvider):
     def __init__(self) -> None:
+        self._market_cache = None
+        self._quotes_cache = {}
         self.cookie_jar = CookieJar()
         self.opener = urllib.request.build_opener(
             urllib.request.HTTPCookieProcessor(self.cookie_jar)
@@ -35,7 +28,6 @@ class YahooProvider(DataProvider):
         self.initialized = False
 
     def fetch_market(self) -> dict[str, any]:
-        global _market_cache
         symbols = list(YAHOO_MARKET_TICKERS.values())
         names = list(YAHOO_MARKET_TICKERS.keys())
 
@@ -46,23 +38,23 @@ class YahooProvider(DataProvider):
             for sym, name in zip(symbols, names):
                 try:
                     indices.append(
-                        build_market_index(name, quotes.get(sym.upper(), {}))
+                        builder.build_market_index(name, quotes.get(sym.upper(), {}))
                     )
                 except Exception:
                     indices.append({"name": name, "value": "—", "change": "0.00"})
 
-            result = {"indices": indices, "is_open": is_market_open()}
-            _market_cache = result
+            result = {"indices": indices, "is_open": builder.is_market_open()}
+            self._market_cache = result
             return result
 
         except Exception as e:
             print(f"[stiq] Market fetch error (custom): {e}", file=sys.stderr)
-            if _market_cache:
-                return _market_cache
+            if self._market_cache:
+                return self._market_cache
             return {"indices": [], "is_open": False}
 
     def _normalize_raw_quote(self, raw_quote: dict[str, any]) -> dict[str, any]:
-        return make_normalized_quote(
+        return builder.make_normalized_quote(
             price=raw_quote.get("regularMarketPrice", 0),
             prev_close=raw_quote.get("regularMarketPreviousClose", 0),
             open=raw_quote.get("regularMarketOpen", 0),
@@ -98,12 +90,12 @@ class YahooProvider(DataProvider):
                     continue
                 normalized = self._normalize_raw_quote(r)
                 if include_history:
-                    cached = get_cached_history(sym_upper)
+                    cached = cache.get_history(sym_upper)
                     if cached is not None:
                         normalized["history"] = cached
                     else:
                         h = self._fetch_history(sym_upper)
-                        set_cached_history(sym_upper, h)
+                        cache.set_history(sym_upper, h)
                         normalized["history"] = h
                 quotes[sym_upper] = normalized
             return quotes
@@ -114,7 +106,6 @@ class YahooProvider(DataProvider):
     def fetch_quotes(
         self, symbols: list[str], include_history: bool = True
     ) -> list[dict[str, any]]:
-        global _quotes_cache
         if not symbols:
             return []
 
@@ -123,16 +114,16 @@ class YahooProvider(DataProvider):
         for sym in symbols:
             sym_upper = sym.upper()
             try:
-                row = build_quote_row(sym_upper, quotes.get(sym_upper, {}))
+                row = builder.build_quote_row(sym_upper, quotes.get(sym_upper, {}))
                 results.append(row)
-                _quotes_cache[sym_upper] = row
+                self._quotes_cache[sym_upper] = row
 
             except Exception as e:
                 print(
                     f"[stiq] Quote error for {sym_upper} (custom): {e}", file=sys.stderr
                 )
-                if sym_upper in _quotes_cache:
-                    results.append(_quotes_cache[sym_upper])
+                if sym_upper in self._quotes_cache:
+                    results.append(self._quotes_cache[sym_upper])
 
         return results
 
