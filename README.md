@@ -9,7 +9,6 @@
 - **Dynamic Watchlist:** Add and remove stock quotes instantly.
 - **Sparklines:** 30-day historical trend charts for every quote in your list.
 - **100% Node-Free:** Built with Python, HTMX, and Alpine.js. No `npm`, `node_modules`, or complex JS build tools.
-- **Local Persistence:** Your watchlist is saved automatically in your browser's local storage.
 
 ## Tech Stack
 
@@ -25,7 +24,7 @@
 
 ### Prerequisites
 
-- **Python 3.13.13** (Pinned for stability and security)
+- **Python >=3.13.13**
 - **uv** (Recommended Python package manager)
 
 ### Installation
