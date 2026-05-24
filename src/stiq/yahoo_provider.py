@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 import io
 import json
@@ -27,7 +28,13 @@ class YahooProvider(DataProvider):
         self.crumb = None
         self.initialized = False
 
-    def fetch_market(self) -> dict[str, any]:
+    async def fetch_market(self) -> dict[str, any]:
+        return await asyncio.to_thread(self._fetch_market_sync)
+
+    def _fetch_market_sync(self) -> dict[str, any]:
+        if not builder.is_market_open() and self._market_cache:
+            return self._market_cache
+
         symbols = list(YAHOO_MARKET_TICKERS.values())
         names = list(YAHOO_MARKET_TICKERS.keys())
 
@@ -103,11 +110,29 @@ class YahooProvider(DataProvider):
             print(f"[stiq-custom] Error fetching raw quote data: {e}", file=sys.stderr)
             return {}
 
-    def fetch_quotes(
+    async def fetch_quotes(
+        self, symbols: list[str], include_history: bool = True
+    ) -> list[dict[str, any]]:
+        return await asyncio.to_thread(self._fetch_quotes_sync, symbols, include_history)
+
+    def _fetch_quotes_sync(
         self, symbols: list[str], include_history: bool = True
     ) -> list[dict[str, any]]:
         if not symbols:
             return []
+
+        if not builder.is_market_open():
+            results = []
+            all_cached = True
+            for sym in symbols:
+                sym_upper = sym.upper()
+                if sym_upper in self._quotes_cache:
+                    results.append(self._quotes_cache[sym_upper])
+                else:
+                    all_cached = False
+                    break
+            if all_cached:
+                return results
 
         quotes = self._fetch_raw_quotes(symbols, include_history=include_history)
         results = []
@@ -122,7 +147,11 @@ class YahooProvider(DataProvider):
                 print(
                     f"[stiq] Quote error for {sym_upper} (custom): {e}", file=sys.stderr
                 )
-                if sym_upper in self._quotes_cache:
+                if not builder.is_market_open():
+                    row = builder.build_quote_row(sym_upper, {})
+                    self._quotes_cache[sym_upper] = row
+                    results.append(row)
+                elif sym_upper in self._quotes_cache:
                     results.append(self._quotes_cache[sym_upper])
 
         return results

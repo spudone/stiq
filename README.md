@@ -13,7 +13,7 @@
 ## Tech Stack
 
 - **Backend:** Python (built-in HTTP server, using only `pytz` for timezone handling)
-- **Data Provider:** Custom zero-dependency scraper or [yfinance](https://github.com/ranaroussi/yfinance)
+- **Data Provider:** Custom zero-dependency scraper, [yfinance](https://github.com/ranaroussi/yfinance), or Tiingo WebSocket API (hybrid/real-time)
 - **Frontend:** [HTMX](https://htmx.org/) + [Alpine.js](https://alpinejs.dev/)
 - **Styling:** [Tailwind CSS v4](https://tailwindcss.com/) (Standalone CLI)
 - **Charts:** [ApexCharts](https://apexcharts.com/)
@@ -60,6 +60,12 @@
    ```bash
    make run-yfinance
    ```
+
+   Or start the application with the **Tiingo WebSocket** provider (requires the `TIINGO_API_KEY` environment variable to be set):
+   ```bash
+   make run-tiingo-ws
+   ```
+   *Note: You can optionally set `TIINGO_THRESHOLD=6` as an environment variable to conserve bandwidth by streaming only derived reference price changes (instead of the default level 5 major updates).*
 ### Debugging in VSCode
 
 To debug the backend server in VSCode, you can create a `.vscode/launch.json` configuration file with the following setup:
@@ -108,14 +114,19 @@ Once configured:
 
 To package Stiq as a standalone executable:
 
-**Custom lightweight build (Recommended):**
+**yahoo build (lightweight custom provider):**
 ```bash
 make dist
 ```
 
-**Heavy yfinance build (Fallback):**
+**yfinance build (fallback):**
 ```bash
 make dist-yfinance
+```
+
+**tiingo build (requires API key):**
+```bash
+make dist-tiingo
 ```
 
 The resulting executable will be found in the `dist/` directory.

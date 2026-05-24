@@ -536,6 +536,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+tiingo-ws = [
+    { name = "websockets" },
+]
 yfinance = [
     { name = "yfinance" },
 ]
@@ -545,9 +548,10 @@ requires-dist = [
     { name = "pyinstaller", specifier = ">=6.20.0" },
     { name = "pytz", specifier = ">=2026.2" },
     { name = "setuptools", specifier = ">=82.0.1" },
+    { name = "websockets", marker = "extra == 'tiingo-ws'", specifier = ">=16.0" },
     { name = "yfinance", marker = "extra == 'yfinance'", specifier = ">=1.3.0" },
 ]
-provides-extras = ["yfinance"]
+provides-extras = ["yfinance", "tiingo-ws"]
 
 [[package]]
 name = "typing-extensions"

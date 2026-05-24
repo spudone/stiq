@@ -14,6 +14,10 @@ dependencies = [
 yfinance = [
     "yfinance>=1.3.0",
 ]
+tiingo-ws = [
+    "websockets>=16.0",
+]
+
 
 [project.scripts]
 stiq = "stiq.main:main"
