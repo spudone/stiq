@@ -18,7 +18,7 @@ import websockets
 
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
 from .builder import builder
-from .yahoo_provider import YahooProvider
+
 
 
 # ── Tiingo WebSocket Endpoints ──────────────────────────────────────
@@ -94,7 +94,7 @@ class TiingoWebSocketProvider(DataProvider):
         if not self._api_key:
             print("[tiingo-ws] WARNING: TIINGO_API_KEY not set", file=sys.stderr)
 
-        self._yahoo = YahooProvider()
+
 
         # ── Caches ──────────────────────────────────────────────────
         self._iex_cache: dict[str, dict] = {}  # ticker → normalized quote dict
@@ -411,7 +411,7 @@ class TiingoWebSocketProvider(DataProvider):
         if not builder.is_market_open() and self._market_cache:
             return self._market_cache
 
-        result = await asyncio.to_thread(self._yahoo._fetch_market_sync)
+        result = {"indices": [], "is_open": builder.is_market_open()}
         self._market_cache = result
         return result
 
@@ -438,37 +438,14 @@ class TiingoWebSocketProvider(DataProvider):
             if all_cached:
                 return results
 
-        # Fetch fundamentals from Yahoo in a background thread
-        yahoo_quotes = {}
-        try:
-            yahoo_quotes = await asyncio.to_thread(
-                self._yahoo._fetch_raw_quotes, symbols, True
-            )
-        except Exception as e:
-            print(f"[tiingo-ws] Error fetching fundamentals from Yahoo: {e}", file=sys.stderr)
-
         results = []
         for sym in symbols:
             sym_upper = sym.upper()
             try:
                 quote = self._iex_cache.get(sym_upper)
-                y_quote = yahoo_quotes.get(sym_upper)
-
-                if not quote and y_quote:
-                    # Fallback to Yahoo quote if no WebSocket tick has arrived yet
-                    quote = y_quote
-                elif quote and y_quote:
-                    # Overlay fundamentals on the IEX quote
-                    quote["low_52w"] = y_quote.get("low_52w")
-                    quote["high_52w"] = y_quote.get("high_52w")
-                    quote["avg_volume"] = y_quote.get("avg_volume")
-                    quote["pe_ratio"] = y_quote.get("pe_ratio")
-                    quote["dividend_rate"] = y_quote.get("dividend_rate")
-                    quote["dividend_yield"] = y_quote.get("dividend_yield")
-                    quote["market_cap"] = y_quote.get("market_cap")
 
                 if quote:
-                    quote["history"] = y_quote.get("history", []) if y_quote else []
+                    quote["history"] = []
                     row = builder.build_quote_row(sym_upper, quote)
                     results.append(row)
                     self._quotes_cache[sym_upper] = row
