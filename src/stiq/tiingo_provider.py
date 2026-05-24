@@ -411,7 +411,7 @@ class TiingoWebSocketProvider(DataProvider):
         if not builder.is_market_open() and self._market_cache:
             return self._market_cache
 
-        result = await asyncio.to_thread(self._yahoo._fetch_market_sync)
+        result = await self._yahoo.fetch_market()
         self._market_cache = result
         return result
 
@@ -438,12 +438,29 @@ class TiingoWebSocketProvider(DataProvider):
             if all_cached:
                 return results
 
-        # Fetch fundamentals from Yahoo in a background thread
+        # Fetch fundamentals from Yahoo
         yahoo_quotes = {}
         try:
-            yahoo_quotes = await asyncio.to_thread(
-                self._yahoo._fetch_raw_quotes, symbols, True
-            )
+            yahoo_rows = await self._yahoo.fetch_quotes(symbols)
+            for row in yahoo_rows:
+                yahoo_quotes[row["quote"]] = {
+                    "price": row["last"],
+                    "prev_close": row["last"] - row["change"],
+                    "open": row.get("open"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "volume": row.get("volume"),
+                    "low_52w": row.get("low52"),
+                    "high_52w": row.get("high52"),
+                    "avg_volume": row.get("avgVolume"),
+                    "pe_ratio": row.get("peRatio"),
+                    "dividend_rate": row.get("dividend"),
+                    "dividend_yield": row.get("yield"),
+                    "market_cap": row.get("marketCap"),
+                    "currency": row.get("currency"),
+                    "history": row.get("history", []),
+                    "change_pct": row.get("changePct"),
+                }
         except Exception as e:
             print(f"[tiingo-ws] Error fetching fundamentals from Yahoo: {e}", file=sys.stderr)
 
