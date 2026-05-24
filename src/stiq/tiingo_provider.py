@@ -445,7 +445,16 @@ class TiingoWebSocketProvider(DataProvider):
                 quote = self._iex_cache.get(sym_upper)
 
                 if quote:
-                    quote["history"] = []
+                    # Overlay fundamentals on the IEX quote
+                    quote["low_52w"] = quote.get("low_52w")
+                    quote["high_52w"] = quote.get("high_52w")
+                    quote["avg_volume"] = quote.get("avg_volume")
+                    quote["pe_ratio"] = quote.get("pe_ratio")
+                    quote["dividend_rate"] = quote.get("dividend_rate")
+                    quote["dividend_yield"] = quote.get("dividend_yield")
+                    quote["market_cap"] = quote.get("market_cap")
+
+                    quote["history"] = quote.get("history", [])
                     row = builder.build_quote_row(sym_upper, quote)
                     results.append(row)
                     self._quotes_cache[sym_upper] = row
