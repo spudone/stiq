@@ -29,12 +29,12 @@ class YahooProvider(DataProvider):
         self.initialized = False
 
     async def fetch_market(self) -> dict[str, any]:
-        return await asyncio.to_thread(self._fetch_market_sync)
-
-    def _fetch_market_sync(self) -> dict[str, any]:
         if not builder.is_market_open() and self._market_cache:
             return self._market_cache
 
+        return await asyncio.to_thread(self._fetch_market_sync)
+
+    def _fetch_market_sync(self) -> dict[str, any]:
         symbols = list(YAHOO_MARKET_TICKERS.values())
         names = list(YAHOO_MARKET_TICKERS.keys())
 
@@ -111,12 +111,7 @@ class YahooProvider(DataProvider):
             return {}
 
     async def fetch_quotes(
-        self, symbols: list[str], include_history: bool = True
-    ) -> list[dict[str, any]]:
-        return await asyncio.to_thread(self._fetch_quotes_sync, symbols, include_history)
-
-    def _fetch_quotes_sync(
-        self, symbols: list[str], include_history: bool = True
+        self, symbols: list[str]
     ) -> list[dict[str, any]]:
         if not symbols:
             return []
@@ -134,6 +129,11 @@ class YahooProvider(DataProvider):
             if all_cached:
                 return results
 
+        return await asyncio.to_thread(self._fetch_quotes_sync, symbols)
+
+    def _fetch_quotes_sync(
+        self, symbols: list[str], include_history: bool = True
+    ) -> list[dict[str, any]]:
         quotes = self._fetch_raw_quotes(symbols, include_history=include_history)
         results = []
         for sym in symbols:

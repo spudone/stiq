@@ -33,12 +33,6 @@ def get_content_type(file_path):
     return mime_type or "application/octet-stream"
 
 
-def read_file_bytes(file_path):
-    """Read binary file content synchronously (wrapped in asyncio.to_thread)."""
-    with open(file_path, "rb") as f:
-        return f.read()
-
-
 async def send_response(writer, status_code, content_type, body_bytes):
     """Send an HTTP response with CORS headers."""
     status_msg = "OK" if status_code == 200 else ("Created" if status_code == 201 else "Error")
@@ -121,7 +115,8 @@ async def handle_get(path, qs, writer):
 
         content_type = get_content_type(file_path)
         try:
-            body = await asyncio.to_thread(read_file_bytes, file_path)
+            with open(file_path, "rb") as f:
+                body = f.read()
             await send_response(writer, 200, content_type, body)
         except Exception:
             await send_error(writer, 500, "Internal Server Error")
