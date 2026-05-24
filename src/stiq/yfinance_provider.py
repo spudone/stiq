@@ -40,12 +40,12 @@ class YFinanceProvider(DataProvider):
         )
 
     async def fetch_market(self) -> dict[str, any]:
-        return await asyncio.to_thread(self._fetch_market_sync)
-
-    def _fetch_market_sync(self) -> dict[str, any]:
         if not builder.is_market_open() and self._market_cache:
             return self._market_cache
 
+        return await asyncio.to_thread(self._fetch_market_sync)
+
+    def _fetch_market_sync(self) -> dict[str, any]:
         symbols = list(YAHOO_MARKET_TICKERS.values())
         names = list(YAHOO_MARKET_TICKERS.keys())
 
@@ -72,9 +72,6 @@ class YFinanceProvider(DataProvider):
             return {"indices": [], "is_open": False}
 
     async def fetch_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
-        return await asyncio.to_thread(self._fetch_quotes_sync, symbols)
-
-    def _fetch_quotes_sync(self, symbols: list[str]) -> list[dict[str, any]]:
         if not symbols:
             return []
 
@@ -91,6 +88,9 @@ class YFinanceProvider(DataProvider):
             if all_cached:
                 return results
 
+        return await asyncio.to_thread(self._fetch_quotes_sync, symbols)
+
+    def _fetch_quotes_sync(self, symbols: list[str]) -> list[dict[str, any]]:
         results = []
         try:
             tickers = yf.Tickers(" ".join(symbols))
