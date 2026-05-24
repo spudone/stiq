@@ -20,12 +20,12 @@ YAHOO_MARKET_TICKERS = {
 
 class DataProvider(ABC):
     @abstractmethod
-    def fetch_market(self) -> dict[str, any]:
+    async def fetch_market(self) -> dict[str, any]:
         """Fetches market indices and status"""
         pass
 
     @abstractmethod
-    def fetch_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
+    async def fetch_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
         """Fetches detailed quotes for a list of symbols"""
         pass
 
@@ -36,6 +36,10 @@ def get_provider() -> DataProvider:
         from .yfinance_provider import YFinanceProvider
 
         return YFinanceProvider()
+    elif os.environ.get("USE_TIINGO_WS") == "1":
+        from .tiingo_provider import TiingoWebSocketProvider
+
+        return TiingoWebSocketProvider()
     else:
         from .yahoo_provider import YahooProvider
 

@@ -1,20 +1,19 @@
 """
 Stiq — High-density browser-based stock ticker.
-Lightweight HTTP server with system browser, modular data providers.
+Lightweight async HTTP server with system browser, modular data providers.
 """
 
+import asyncio
 import json
+import mimetypes
 import os
 import shutil
 import subprocess
 import sys
-import threading
 import webbrowser
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+import urllib.parse
 from stiq.provider import get_provider
 from stiq.config import config
-
 
 provider = get_provider()
 
@@ -28,83 +27,177 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-class StiqHandler(SimpleHTTPRequestHandler):
-    """Serves static files from web/ and handles API routes."""
+def get_content_type(file_path):
+    """Guess the MIME type of a file path."""
+    mime_type, _ = mimetypes.guess_type(file_path)
+    return mime_type or "application/octet-stream"
 
-    def __init__(self, *args, **kwargs):
-        web_dir = resource_path("web")
-        super().__init__(*args, directory=web_dir, **kwargs)
 
-    def do_GET(self):
-        parsed = urlparse(self.path)
+def read_file_bytes(file_path):
+    """Read binary file content synchronously (wrapped in asyncio.to_thread)."""
+    with open(file_path, "rb") as f:
+        return f.read()
 
-        if parsed.path == "/api/market":
-            self._json_response(provider.fetch_market())
-        elif parsed.path == "/api/quotes":
-            qs = parse_qs(parsed.query)
-            symbols = qs.get("symbols", [""])[0]
-            symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-            self._json_response(provider.fetch_quotes(symbol_list))
-        elif parsed.path == "/api/watchlist":
-            self._json_response(
-                {"symbols": config.watchlist, "poll_interval": config.poll_interval}
-            )
-        elif parsed.path == "/api/shutdown":
-            self.send_response(200)
-            self.end_headers()
-            print("\n[stiq] Browser window closed. Shutting down…")
-            threading.Thread(target=lambda: os._exit(0)).start()
-        else:
-            # Serve static files from web/
-            super().do_GET()
 
-    def do_POST(self):
-        parsed = urlparse(self.path)
-        if parsed.path == "/api/watchlist/add":
-            qs = parse_qs(parsed.query)
-            symbol = qs.get("symbol", [""])[0].strip()
-            if symbol:
-                config.add(symbol)
-                self._json_response({"success": True})
-            else:
-                self.send_error(400, "Missing symbol parameter")
-        elif parsed.path == "/api/watchlist/remove":
-            qs = parse_qs(parsed.query)
-            symbol = qs.get("symbol", [""])[0].strip()
-            if symbol:
-                config.remove(symbol)
-                self._json_response({"success": True})
-            else:
-                self.send_error(400, "Missing symbol parameter")
-        elif parsed.path == "/api/watchlist/interval":
-            qs = parse_qs(parsed.query)
-            seconds_str = qs.get("seconds", [""])[0].strip()
-            if seconds_str:
-                try:
-                    config.set_interval(int(seconds_str))
-                    self._json_response({"success": True})
-                except ValueError:
-                    self.send_error(400, "Invalid seconds value")
-            else:
-                self.send_error(400, "Missing seconds parameter")
-        elif parsed.path == "/api/shutdown":
-            self.send_response(200)
-            self.end_headers()
-            print("\n[stiq] Browser window closed. Shutting down…")
-            threading.Thread(target=lambda: os._exit(0)).start()
-
-    def _json_response(self, data):
-        body = json.dumps(data).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args):
-        # Silence per-request logging
+async def send_response(writer, status_code, content_type, body_bytes):
+    """Send an HTTP response with CORS headers."""
+    status_msg = "OK" if status_code == 200 else ("Created" if status_code == 201 else "Error")
+    headers = [
+        f"HTTP/1.1 {status_code} {status_msg}",
+        f"Content-Type: {content_type}",
+        f"Content-Length: {len(body_bytes)}",
+        "Access-Control-Allow-Origin: *",
+        "Connection: close",
+        "\r\n"
+    ]
+    try:
+        writer.write(("\r\n".join(headers)).encode("utf-8") + body_bytes)
+        await writer.drain()
+    except Exception:
         pass
+
+
+async def send_json(writer, data):
+    """Send a JSON payload."""
+    body = json.dumps(data).encode("utf-8")
+    await send_response(writer, 200, "application/json", body)
+
+
+async def send_error(writer, status_code, message):
+    """Send a plain text HTTP error response."""
+    body = f"Error {status_code}: {message}".encode("utf-8")
+    headers = [
+        f"HTTP/1.1 {status_code} {message}",
+        "Content-Type: text/plain",
+        f"Content-Length: {len(body)}",
+        "Connection: close",
+        "\r\n"
+    ]
+    try:
+        writer.write(("\r\n".join(headers)).encode("utf-8") + body)
+        await writer.drain()
+    except Exception:
+        pass
+
+
+async def delayed_exit(delay):
+    """Wait and then shut down the application process."""
+    await asyncio.sleep(delay)
+    os._exit(0)
+
+
+async def handle_get(path, qs, writer):
+    """Handle GET requests for static assets and API routes."""
+    if path == "/api/market":
+        data = await provider.fetch_market()
+        await send_json(writer, data)
+    elif path == "/api/quotes":
+        symbols = qs.get("symbols", [""])[0]
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        data = await provider.fetch_quotes(symbol_list)
+        await send_json(writer, data)
+    elif path == "/api/watchlist":
+        await send_json(
+            writer,
+            {"symbols": config.watchlist, "poll_interval": config.poll_interval}
+        )
+    elif path == "/api/shutdown":
+        await send_response(writer, 200, "text/plain", b"Shutting down")
+        print("\n[stiq] Browser window closed. Shutting down…")
+        asyncio.create_task(delayed_exit(0.5))
+    else:
+        # Serve static files from web/
+        if path == "/" or path == "/index.html":
+            file_path = resource_path("web/index.html")
+        else:
+            # Prevent directory traversal
+            clean_path = path.lstrip("/")
+            file_path = resource_path(os.path.join("web", clean_path))
+
+        # Check path existence
+        if not os.path.exists(file_path) or os.path.isdir(file_path):
+            await send_error(writer, 404, "Not Found")
+            return
+
+        content_type = get_content_type(file_path)
+        try:
+            body = await asyncio.to_thread(read_file_bytes, file_path)
+            await send_response(writer, 200, content_type, body)
+        except Exception:
+            await send_error(writer, 500, "Internal Server Error")
+
+
+async def handle_post(path, qs, writer):
+    """Handle POST requests for mutating configuration or shutdown."""
+    if path == "/api/watchlist/add":
+        symbol = qs.get("symbol", [""])[0].strip()
+        if symbol:
+            config.add(symbol)
+            await send_json(writer, {"success": True})
+        else:
+            await send_error(writer, 400, "Missing symbol parameter")
+    elif path == "/api/watchlist/remove":
+        symbol = qs.get("symbol", [""])[0].strip()
+        if symbol:
+            config.remove(symbol)
+            await send_json(writer, {"success": True})
+        else:
+            await send_error(writer, 400, "Missing symbol parameter")
+    elif path == "/api/watchlist/interval":
+        seconds_str = qs.get("seconds", [""])[0].strip()
+        if seconds_str:
+            try:
+                config.set_interval(int(seconds_str))
+                await send_json(writer, {"success": True})
+            except ValueError:
+                await send_error(writer, 400, "Invalid seconds value")
+        else:
+            await send_error(writer, 400, "Missing seconds parameter")
+    elif path == "/api/shutdown":
+        await send_response(writer, 200, "text/plain", b"Shutting down")
+        print("\n[stiq] Browser window closed. Shutting down…")
+        asyncio.create_task(delayed_exit(0.5))
+    else:
+        await send_error(writer, 404, "Not Found")
+
+
+async def handle_client(reader, writer):
+    """Asynchronous HTTP request router."""
+    try:
+        request_line_bytes = await reader.readline()
+        if not request_line_bytes:
+            return
+        request_line = request_line_bytes.decode("utf-8").strip()
+        parts = request_line.split()
+        if len(parts) < 3:
+            return
+        method, full_path, _ = parts
+
+        # Read and ignore HTTP request headers
+        while True:
+            line_bytes = await reader.readline()
+            line = line_bytes.decode("utf-8").strip()
+            if not line:
+                break
+
+        parsed = urllib.parse.urlparse(full_path)
+        path = parsed.path
+        qs = urllib.parse.parse_qs(parsed.query)
+
+        if method == "GET":
+            await handle_get(path, qs, writer)
+        elif method == "POST":
+            await handle_post(path, qs, writer)
+        else:
+            await send_error(writer, 405, "Method Not Allowed")
+    except Exception as e:
+        print(f"[stiq] Error handling request: {e}", file=sys.stderr)
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
 
 
 def launch_app_window(url):
@@ -149,26 +242,25 @@ def launch_app_window(url):
 # ── Application Entry ───────────────────────────────────────────
 
 
-def main():
+async def main_async():
     port = 8123
-    server = HTTPServer(("127.0.0.1", port), StiqHandler)
+    server = await asyncio.start_server(handle_client, "127.0.0.1", port)
     url = f"http://127.0.0.1:{port}/index.html"
 
     print(f"[stiq] Starting application on {url}")
 
-    # Run the server in a background thread
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-
     # Launch Chrome app window or fallback
     launch_app_window(url)
 
-    # Keep running until interrupted
+    async with server:
+        await server.serve_forever()
+
+
+def main():
     try:
-        thread.join()
+        asyncio.run(main_async())
     except KeyboardInterrupt:
         print("\n[stiq] Shutting down…")
-        server.shutdown()
 
 
 if __name__ == "__main__":

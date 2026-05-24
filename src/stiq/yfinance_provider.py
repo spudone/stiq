@@ -1,3 +1,4 @@
+import asyncio
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
 from .cache import cache
 from .builder import builder
@@ -38,7 +39,13 @@ class YFinanceProvider(DataProvider):
             history=[],
         )
 
-    def fetch_market(self) -> dict[str, any]:
+    async def fetch_market(self) -> dict[str, any]:
+        return await asyncio.to_thread(self._fetch_market_sync)
+
+    def _fetch_market_sync(self) -> dict[str, any]:
+        if not builder.is_market_open() and self._market_cache:
+            return self._market_cache
+
         symbols = list(YAHOO_MARKET_TICKERS.values())
         names = list(YAHOO_MARKET_TICKERS.keys())
 
@@ -64,9 +71,25 @@ class YFinanceProvider(DataProvider):
                 return self._market_cache
             return {"indices": [], "is_open": False}
 
-    def fetch_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
+    async def fetch_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
+        return await asyncio.to_thread(self._fetch_quotes_sync, symbols)
+
+    def _fetch_quotes_sync(self, symbols: list[str]) -> list[dict[str, any]]:
         if not symbols:
             return []
+
+        if not builder.is_market_open():
+            results = []
+            all_cached = True
+            for sym in symbols:
+                sym_upper = sym.upper()
+                if sym_upper in self._quotes_cache:
+                    results.append(self._quotes_cache[sym_upper])
+                else:
+                    all_cached = False
+                    break
+            if all_cached:
+                return results
 
         results = []
         try:
@@ -102,14 +125,22 @@ class YFinanceProvider(DataProvider):
                         f"[stiq] Quote error for {sym_upper} (yfinance): {e}",
                         file=sys.stderr,
                     )
-                    if sym_upper in self._quotes_cache:
+                    if not builder.is_market_open():
+                        row = builder.build_quote_row(sym_upper, {})
+                        self._quotes_cache[sym_upper] = row
+                        results.append(row)
+                    elif sym_upper in self._quotes_cache:
                         results.append(self._quotes_cache[sym_upper])
 
         except Exception as e:
             print(f"[stiq] Quotes fetch error (yfinance): {e}", file=sys.stderr)
             for sym in symbols:
                 sym_upper = sym.upper()
-                if sym_upper in self._quotes_cache:
+                if not builder.is_market_open():
+                    row = builder.build_quote_row(sym_upper, {})
+                    self._quotes_cache[sym_upper] = row
+                    results.append(row)
+                elif sym_upper in self._quotes_cache:
                     results.append(self._quotes_cache[sym_upper])
 
         return results
