@@ -1,5 +1,7 @@
 .PHONY: setup build run run-yfinance run-tiingo-ws clean dist watch
 
+USE_RATE_LIMIT ?= 1
+export USE_RATE_LIMIT
 # Helper to detect OS for the binary name (used for build/watch targets)
 TAILWIND_BIN = $(shell python3 -c "import platform; print('tailwindcss.exe' if platform.system() == 'Windows' else 'tailwindcss')")
 
