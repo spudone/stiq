@@ -63,8 +63,10 @@ function stiq() {
     quotes: [], // List of symbols
     quoteData: [], // List of quote objects
     marketData: [],
+    marketProvider: "yahoo",
     marketOpen: false,
     lastUpdated: null,
+    currentDate: new Date().toLocaleDateString(undefined, { dateStyle: 'medium' }),
     newQuote: "",
     sparkCharts: {},
     pollTimer: null,
@@ -81,8 +83,9 @@ function stiq() {
         const config = await resp.json();
         if (config) {
           this.quotes = config.symbols || [];
-          this.pollInterval = config.poll_interval || DEFAULT_INTERVAL;
+          this.pollInterval = config.poll_interval_secs || DEFAULT_INTERVAL;
           this.provider = config.provider || "yahoo";
+          this.marketProvider = config.market_provider || "yahoo";
         }
       } catch (err) {
         console.error("Error loading watchlist:", err);
@@ -91,8 +94,8 @@ function stiq() {
       // Initial data fetch
       await this.refresh();
 
-      // Start the dynamic polling timer
-      this.startTimer();
+      // Connect to Server-Sent Events stream
+      this.setupSSE();
 
       // Notify backend when window is closed
       window.addEventListener("beforeunload", () => {
@@ -100,25 +103,78 @@ function stiq() {
       });
     },
 
-    // ── Timer Management ──────────────────────────────────
-    startTimer() {
-      if (this.pollTimer) clearInterval(this.pollTimer);
+    // ── SSE / Stream Management ───────────────────────────
+    setupSSE() {
+      if (this.evtSource) {
+        this.evtSource.close();
+      }
+      this.evtSource = new EventSource("/api/stream");
+      this.evtSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          
+          if (payload.type === "market") {
+            this.marketData = payload.data.indices || [];
+            this.marketOpen = payload.data.is_open || false;
+            
+          } else if (payload.type === "history") {
+            for (const sym of Object.keys(payload.data)) {
+              const hi = payload.data[sym];
+              let idx = this.quoteData.findIndex((q) => q.quote === sym);
+              if (idx !== -1) {
+                this.quoteData[idx] = { ...this.quoteData[idx], ...hi };
+              } else {
+                this.quoteData.push({ quote: sym, ...hi });
+                idx = this.quoteData.length - 1;
+              }
+              const q = this.quoteData[idx];
+              if (q.history && q.history.length > 0) {
+                if (this.sparkCharts[sym]) {
+                  this.sparkCharts[sym].updateSeries([{ data: q.history }]);
+                } else {
+                  this.$nextTick(() => { this.renderSparkline(sym, q.history, q.change >= 0); });
+                }
+              }
+            }
+            
+          } else if (payload.type === "quotes") {
+            payload.data.forEach((q) => {
+              const idx = this.quoteData.findIndex((e) => e.quote === q.quote);
+              if (idx !== -1) {
+                this.quoteData[idx] = { ...this.quoteData[idx], ...q };
+              }
+            });
+            this.lastUpdated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+            
+          } else if (payload.type === "quote") {
+            const q = payload.data;
+            const idx = this.quoteData.findIndex((e) => e.quote === q.quote);
+            if (idx !== -1) {
+              this.quoteData[idx] = { ...this.quoteData[idx], ...q };
+            }
+            this.lastUpdated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          }
+        } catch (e) {
+          console.error("SSE parse error", e);
+        }
+      };
       
-      this.pollTimer = setInterval(() => {
-        this.refresh();
-      }, this.pollInterval * 1000);
+      this.evtSource.onerror = () => {
+        console.log("SSE disconnected. Attempting to reconnect...");
+      };
     },
 
+    // ── Timer Management ──────────────────────────────────
+
     async setPollInterval(seconds) {
-      // Floor at 15 seconds to prevent rate limiting/browser thrashing
-      const val = Math.max(15, parseInt(seconds));
+      // Floor at 60 seconds to prevent rate limiting/browser thrashing
+      const val = Math.max(60, parseInt(seconds));
       try {
         const resp = await fetch("/api/watchlist/interval?seconds=" + val, { method: "POST" });
         const res = await resp.json();
         if (res && res.success) {
           this.pollInterval = val;
-          // Restart timer with new interval
-          this.startTimer();
+          // Backend poller will automatically adopt the new interval
           console.log(`[stiq] Polling interval updated to ${val}s`);
         }
       } catch (err) {
@@ -199,6 +255,7 @@ function stiq() {
         this.lastUpdated = now.toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
+          second: "2-digit"
         });
       } catch (err) {
         console.error("Stiq refresh error:", err);

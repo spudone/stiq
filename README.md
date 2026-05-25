@@ -5,15 +5,16 @@
 ## Features
 
 - **High-Density UI:** Compact financial layout designed for maximum information at a glance.
-- **Market Overview:** Top-bar tracking of global indices (Dow, S&P 500, Nasdaq, Tokyo, HK, London, Frankfurt), bond yields (10-Year), currencies (Euro, Yen), and commodities (Oil, Gold).
+- **Market Overview:** Top-bar tracking of global indices, bond yields, currencies, and commodities.
 - **Dynamic Watchlist:** Add and remove stock quotes instantly.
 - **Sparklines:** 30-day historical trend charts for every quote in your list.
-- **100% Node-Free:** Built with Python, HTMX, and Alpine.js. No `npm`, `node_modules`, or complex JS build tools.
+- **100% Node-Free:** Built with Python, HTMX, and Alpine.js. No `npm` or complex JS build tools.
+- **Real-Time Push Architecture:** Zero-flicker UI powered by a Server-Sent Events (SSE) backend.
 
 ## Tech Stack
 
-- **Backend:** Python (built-in HTTP server, using only `pytz` for timezone handling)
-- **Data Provider:** Custom zero-dependency scraper, [yfinance](https://github.com/ranaroussi/yfinance), or Tiingo WebSocket API (hybrid/real-time)
+- **Backend:** Python (asyncio, aiohttp, Server-Sent Events)
+- **Data Provider:** Hybrid provider engine (`yahoo`, `yfinance`, or `tiingo` WebSockets)
 - **Frontend:** [HTMX](https://htmx.org/) + [Alpine.js](https://alpinejs.dev/)
 - **Styling:** [Tailwind CSS v4](https://tailwindcss.com/) (Standalone CLI)
 - **Charts:** [ApexCharts](https://apexcharts.com/)
@@ -36,7 +37,7 @@
    ```
 
 2. **Run the setup:**
-   This will synchronize Python dependencies and download the correct **Tailwind CSS** standalone binary for your operating system (Linux, macOS, or Windows).
+   This will synchronize Python dependencies and download the correct **Tailwind CSS** standalone binary for your OS.
    ```bash
    make setup
    ```
@@ -44,89 +45,58 @@
 ### Development
 
 1. **Build the CSS:**
-   Compiles the Tailwind `input.css` into the final `web/style.css`.
    ```bash
    make build
    ```
-   *Alternatively, run `make watch` in a separate terminal to auto-compile as you edit HTML/CSS.*
+   *(Run `make watch` in a separate terminal to auto-compile as you edit).*
 
 2. **Launch the app:**
-   Start the application with the custom scraping provider (recommended):
+   Start the application. The build system will automatically sniff your `config.json` and install only the required library extras.
    ```bash
    make run
    ```
 
-   Or start the application with the `yfinance` provider:
-   ```bash
-   make run-yfinance
-   ```
+---
 
-   Or start the application with the **Tiingo WebSocket** provider (requires the `TIINGO_API_KEY` environment variable to be set):
-   ```bash
-   make run-tiingo-ws
-   ```
-   *Note: You can optionally set `TIINGO_THRESHOLD=6` as an environment variable to conserve bandwidth by streaming only derived reference price changes (instead of the default level 5 major updates).*
-### Debugging in VSCode
+## Configuration (`~/.stiq/config.json`)
 
-To debug the backend server in VSCode, you can create a `.vscode/launch.json` configuration file with the following setup:
+Stiq dynamically multiplexes data pipelines. On first launch, a configuration file is generated at `~/.stiq/config.json`. You can edit this file to mix and match data providers seamlessly.
 
 ```json
 {
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Stiq: Custom Scraper (Default)",
-      "type": "python",
-      "request": "launch",
-      "module": "stiq.main",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "src",
-        "STIQ_PROVIDER": "yahoo"
-      },
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "Stiq: yfinance Provider",
-      "type": "python",
-      "request": "launch",
-      "module": "stiq.main",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "src",
-        "STIQ_PROVIDER": "yfinance"
-      },
-      "console": "integratedTerminal"
-    }
+  "market_provider": "yahoo",
+  "quotes_provider": "yahoo",
+  "history_provider": "yahoo",
+  "poll_interval_secs": 300,
+  "use_rate_limit": true,
+  "watchlist": [
+    "AAPL",
+    "MSFT"
   ]
 }
 ```
 
-Once configured:
-1. Ensure the **Python** extension by Microsoft is installed.
-2. Open the Run and Debug view (`Ctrl+Shift+D`).
-3. Select either **Stiq: Custom Scraper (Default)** or **Stiq: yfinance Provider** from the configuration dropdown at the top.
-4. Press `F5` or click the green Play button to start debugging.
+### Allowed Providers
+You may assign any of the following to `market_provider`, `quotes_provider`, or `history_provider`:
+
+- `"yahoo"`: Zero-dependency web scraper. The recommended default for all pipelines.
+- `"yfinance"`: Uses the `yfinance` Python library. A reliable alternative fallback.
+- `"tiingo"`: Uses the Tiingo IEX WebSocket API for instant real-time quotes, and REST for history.
+  - *Note: Requires `TIINGO_API_KEY` to be exported in your environment.*
+  - *Note: Tiingo does not provide global market indices; it's recommended to leave `market_provider` as `"yahoo"` even when using Tiingo for quotes.*
 
 ---
 
-## Distribution
+## Distribution & Cleanup
 
-To package Stiq as a standalone executable:
+To package Stiq as a standalone executable (it will bundle whichever dependencies are specified in your current `config.json`):
 
-**yahoo build (lightweight custom provider):**
 ```bash
 make dist
 ```
 
-**yfinance build (fallback):**
+To clean up build artifacts (`dist`, `build`, `.venv`):
 ```bash
-make dist-yfinance
+make clean
 ```
-
-**tiingo build (requires API key):**
-```bash
-make dist-tiingo
-```
-
-The resulting executable will be found in the `dist/` directory.
+*(To also wipe the downloaded Tailwind binary, use `make dist-clean`).*

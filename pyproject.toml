@@ -5,9 +5,12 @@ description = "Stock Ticker"
 readme = "README.md"
 requires-python = ">=3.13.13"
 dependencies = [
+    "aiohttp>=3.13.5",
+    "holidays>=0.97",
     "pyinstaller>=6.20.0",
     "pytz>=2026.2",
     "setuptools>=82.0.1",
+    "tiingo>=0.16.1",
 ]
 
 [project.optional-dependencies]

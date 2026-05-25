@@ -12,8 +12,10 @@ import subprocess
 import sys
 import webbrowser
 import urllib.parse
+from datetime import datetime
 from stiq.provider import get_provider
 from stiq.config import config
+from stiq.events import event_bus
 
 provider = get_provider()
 
@@ -82,22 +84,69 @@ async def delayed_exit(delay):
 
 async def handle_get(path, qs, writer):
     """Handle GET requests for static assets and API routes."""
-    if path == "/api/market":
+    if path == "/api/stream":
+        headers = [
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream",
+            "Cache-Control: no-cache",
+            "Connection: keep-alive",
+            "Access-Control-Allow-Origin: *",
+            "\r\n"
+        ]
+        try:
+            writer.write(("\r\n".join(headers)).encode("utf-8"))
+            await writer.drain()
+        except Exception:
+            return
+            
+        queue = asyncio.Queue()
+        event_bus.subscribe(queue)
+        try:
+            while True:
+                message = await queue.get()
+                data_str = json.dumps(message)
+                writer.write(f"data: {data_str}\n\n".encode("utf-8"))
+                await writer.drain()
+        except Exception:
+            pass
+        finally:
+            event_bus.unsubscribe(queue)
+            
+    elif path == "/api/market":
         data = await provider.fetch_market()
         await send_json(writer, data)
     elif path == "/api/quotes":
         symbols = qs.get("symbols", [""])[0]
         symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-        data = await provider.fetch_quotes(symbol_list)
+        
+        realtime_data = await provider.fetch_quotes(symbol_list)
+        history_data = await provider.fetch_history(symbol_list)
+        
+        data = []
+        for sym in symbol_list:
+            sym_upper = sym.upper()
+            rt = realtime_data.get(sym_upper, {})
+            hi = history_data.get(sym_upper, {})
+            
+            merged = {**hi, **rt}
+            if not merged.get("quote"):
+                merged["quote"] = sym_upper
+            data.append(merged)
+            
+        await send_json(writer, data)
+    elif path == "/api/history":
+        symbols = qs.get("symbols", [""])[0]
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        data = await provider.fetch_history(symbol_list)
         await send_json(writer, data)
     elif path == "/api/watchlist":
-        provider_type = os.environ.get("STIQ_PROVIDER", "yahoo").lower()
         await send_json(
             writer,
             {
                 "symbols": config.watchlist, 
-                "poll_interval": config.poll_interval,
-                "provider": provider_type
+                "poll_interval_secs": config.poll_interval_secs,
+                "provider": config.quotes_provider,
+                "market_provider": config.market_provider
             }
         )
     elif path == "/api/shutdown":
@@ -242,12 +291,48 @@ def launch_app_window(url):
 # ── Application Entry ───────────────────────────────────────────
 
 
+async def background_poller():
+    """Periodically fetches market, history, and polling quotes, pushing them to EventBus."""
+    last_history_fetch = None
+    while True:
+        try:
+            if config.watchlist:
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                if last_history_fetch != today_str and builder.is_market_open():
+                    hist = await provider.fetch_history(config.watchlist)
+                    event_bus.publish("history", hist)
+                    last_history_fetch = today_str
+
+                if builder.is_market_open():
+                    mkt = await provider.fetch_market()
+                    event_bus.publish("market", mkt)
+
+                    if config.quotes_provider != "tiingo":
+                        quotes = await provider.fetch_quotes(config.watchlist)
+                        q_list = []
+                        for sym in config.watchlist:
+                            q = quotes.get(sym.upper())
+                            if q:
+                                q["quote"] = sym.upper()
+                                q_list.append(q)
+                        if q_list:
+                            event_bus.publish("quotes", q_list)
+        except Exception as e:
+            print(f"[stiq] Poller error: {e}", file=sys.stderr)
+        
+        sleep_secs = 300 if config.quotes_provider == "tiingo" else config.poll_interval_secs
+        await asyncio.sleep(sleep_secs)
+
+
 async def main_async():
     port = 8123
     server = await asyncio.start_server(handle_client, "127.0.0.1", port)
     url = f"http://127.0.0.1:{port}/index.html"
 
     print(f"[stiq] Starting application on {url}")
+
+    # Start background poller
+    asyncio.create_task(background_poller())
 
     # Launch Chrome app window or fallback
     launch_app_window(url)
