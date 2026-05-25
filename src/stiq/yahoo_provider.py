@@ -1,12 +1,10 @@
 import asyncio
-import gzip
-import io
 import json
 import re
 import sys
 import urllib.parse
-import urllib.request
-from http.cookiejar import CookieJar
+
+import aiohttp
 
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
 from .cache import cache
@@ -19,33 +17,45 @@ class YahooProvider(DataProvider):
     def __init__(self) -> None:
         self._market_cache = None
         self._quotes_cache = {}
-        self.cookie_jar = CookieJar()
-        self.opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(self.cookie_jar)
-        )
+        self._history_cache = {}
+        
+        self.session: aiohttp.ClientSession | None = None
         self._user_agent = _DEFAULT_USER_AGENT
-        self.opener.addheaders = [("User-Agent", self._user_agent)]
         self.crumb = None
         self.initialized = False
+        self._init_lock = asyncio.Lock()
+
+    async def _ensure_session(self) -> None:
+        if self.session is None:
+            self.session = aiohttp.ClientSession(
+                cookie_jar=aiohttp.CookieJar(unsafe=True),  # unsafe=True needed for IP addresses if any, fine for Yahoo
+                headers={"User-Agent": self._user_agent},
+                max_line_size=32768,
+                max_field_size=32768
+            )
 
     async def fetch_market(self) -> dict[str, any]:
         if not builder.is_market_open() and self._market_cache:
             return self._market_cache
 
-        return await asyncio.to_thread(self._fetch_market_sync)
-
-    def _fetch_market_sync(self) -> dict[str, any]:
         symbols = list(YAHOO_MARKET_TICKERS.values())
         names = list(YAHOO_MARKET_TICKERS.keys())
 
         try:
-            quotes = self._fetch_raw_quotes(symbols)
+            raw_quotes = await self._fetch_raw_quotes(symbols)
+            quotes_map = {r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")}
             indices = []
 
             for sym, name in zip(symbols, names):
                 try:
+                    q = quotes_map.get(sym.upper(), {})
+                    price = q.get("regularMarketPrice", 0)
+                    prev_close = q.get("regularMarketPreviousClose", 0)
+                    change_pct = q.get("regularMarketChangePercent")
+                    if change_pct is None:
+                        change_pct = ((price - prev_close) / prev_close * 100) if prev_close and prev_close != 0 else 0.0
                     indices.append(
-                        builder.build_market_index(name, quotes.get(sym.upper(), {}))
+                        builder.build_market_index(name, price, change_pct)
                     )
                 except Exception:
                     indices.append({"name": name, "value": None, "change": 0.0})
@@ -60,87 +70,64 @@ class YahooProvider(DataProvider):
                 return self._market_cache
             return {"indices": [], "is_open": False}
 
-    def _normalize_raw_quote(self, raw_quote: dict[str, any]) -> dict[str, any]:
-        return builder.make_normalized_quote(
-            price=raw_quote.get("regularMarketPrice", 0),
-            prev_close=raw_quote.get("regularMarketPreviousClose", 0),
-            open=raw_quote.get("regularMarketOpen", 0),
-            high=raw_quote.get("regularMarketDayHigh", 0),
-            low=raw_quote.get("regularMarketDayLow", 0),
-            volume=raw_quote.get("regularMarketVolume", 0),
-            low_52w=raw_quote.get("fiftyTwoWeekLow"),
-            high_52w=raw_quote.get("fiftyTwoWeekHigh"),
-            avg_volume=raw_quote.get("averageDailyVolume10Day"),
-            pe_ratio=raw_quote.get("trailingPE"),
-            dividend_rate=raw_quote.get("trailingAnnualDividendRate"),
-            dividend_yield=raw_quote.get("trailingAnnualDividendYield"),
-            market_cap=raw_quote.get("marketCap"),
-            currency=raw_quote.get("currency", "USD"),
-            history=raw_quote.get("history", []),
-            change_pct=raw_quote.get("regularMarketChangePercent"),
-        )
+    def _chunk_symbols(self, symbols: list[str], chunk_size: int = 500) -> list[list[str]]:
+        return [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
 
-    def _fetch_raw_quotes(
-        self, symbols: list[str], include_history: bool = False
-    ) -> dict[str, dict[str, any]]:
-        if not self._initialize() or not symbols:
-            return {}
+    async def _fetch_raw_quotes(
+        self, symbols: list[str]
+    ) -> list[dict[str, any]]:
+        if not await self._initialize() or not symbols:
+            return []
 
-        url = f"https://query1.finance.yahoo.com/v7/finance/quote?crumb={self.crumb}&symbols={','.join(symbols)}"
-        try:
-            data = self._query_api(url)
-            results = data.get("quoteResponse", {}).get("result", [])
-            quotes = {}
-            for r in results:
-                sym_upper = r.get("symbol", "").upper()
-                if not sym_upper:
-                    continue
-                normalized = self._normalize_raw_quote(r)
-                if include_history:
-                    cached = cache.get_history(sym_upper)
-                    if cached is not None:
-                        normalized["history"] = cached
-                    else:
-                        h = self._fetch_history(sym_upper)
-                        cache.set_history(sym_upper, h)
-                        normalized["history"] = h
-                quotes[sym_upper] = normalized
-            return quotes
-        except Exception as e:
-            print(f"[stiq-custom] Error fetching raw quote data: {e}", file=sys.stderr)
-            return {}
+        all_results = []
+        for chunk in self._chunk_symbols(symbols):
+            url = f"https://query1.finance.yahoo.com/v7/finance/quote?crumb={self.crumb}&symbols={','.join(chunk)}"
+            try:
+                data = await self._query_api(url)
+                all_results.extend(data.get("quoteResponse", {}).get("result", []))
+            except Exception as e:
+                print(f"[stiq-custom] Error fetching raw quote data for chunk: {e}", file=sys.stderr)
+                
+        return all_results
 
     async def fetch_quotes(
         self, symbols: list[str]
-    ) -> list[dict[str, any]]:
+    ) -> dict[str, dict[str, any]]:
         if not symbols:
-            return []
+            return {}
 
         if not builder.is_market_open():
-            results = []
+            results = {}
             all_cached = True
             for sym in symbols:
                 sym_upper = sym.upper()
                 if sym_upper in self._quotes_cache:
-                    results.append(self._quotes_cache[sym_upper])
+                    results[sym_upper] = self._quotes_cache[sym_upper]
                 else:
                     all_cached = False
                     break
             if all_cached:
                 return results
 
-        return await asyncio.to_thread(self._fetch_quotes_sync, symbols)
-
-    def _fetch_quotes_sync(
-        self, symbols: list[str], include_history: bool = True
-    ) -> list[dict[str, any]]:
-        quotes = self._fetch_raw_quotes(symbols, include_history=include_history)
-        results = []
+        raw_quotes = await self._fetch_raw_quotes(symbols)
+        quotes_map = {r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")}
+        results = {}
+        
         for sym in symbols:
             sym_upper = sym.upper()
             try:
-                row = builder.build_quote_row(sym_upper, quotes.get(sym_upper, {}))
-                results.append(row)
+                r = quotes_map.get(sym_upper, {})
+                row = builder.build_realtime_quote(
+                    sym=sym_upper,
+                    price=r.get("regularMarketPrice", 0),
+                    prev_close=r.get("regularMarketPreviousClose", 0),
+                    open=r.get("regularMarketOpen", 0),
+                    high=r.get("regularMarketDayHigh", 0),
+                    low=r.get("regularMarketDayLow", 0),
+                    volume=r.get("regularMarketVolume", 0),
+                    change_pct=r.get("regularMarketChangePercent"),
+                )
+                results[sym_upper] = row
                 self._quotes_cache[sym_upper] = row
 
             except Exception as e:
@@ -148,27 +135,86 @@ class YahooProvider(DataProvider):
                     f"[stiq] Quote error for {sym_upper} (custom): {e}", file=sys.stderr
                 )
                 if not builder.is_market_open():
-                    row = builder.build_quote_row(sym_upper, {})
+                    row = builder.build_realtime_quote(sym_upper)
                     self._quotes_cache[sym_upper] = row
-                    results.append(row)
+                    results[sym_upper] = row
                 elif sym_upper in self._quotes_cache:
-                    results.append(self._quotes_cache[sym_upper])
+                    results[sym_upper] = self._quotes_cache[sym_upper]
 
         return results
 
-    def _read_response(self, resp: any) -> str:
-        data = resp.read()
-        if resp.info().get("Content-Encoding") == "gzip":
-            with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
-                data = f.read()
-        return data.decode("utf-8")
+    async def fetch_history(
+        self, symbols: list[str]
+    ) -> dict[str, dict[str, any]]:
+        if not symbols:
+            return {}
+
+        if not builder.is_market_open():
+            results = {}
+            all_cached = True
+            for sym in symbols:
+                sym_upper = sym.upper()
+                if sym_upper in self._history_cache:
+                    results[sym_upper] = self._history_cache[sym_upper]
+                else:
+                    all_cached = False
+                    break
+            if all_cached:
+                return results
+
+        raw_quotes = await self._fetch_raw_quotes(symbols)
+        quotes_map = {r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")}
+        results = {}
+
+        for sym in symbols:
+            sym_upper = sym.upper()
+            try:
+                r = quotes_map.get(sym_upper, {})
+                
+                from datetime import date
+                today_str = date.today().isoformat()
+                
+                cached = cache.get_history("yahoo", sym_upper)
+                if cached is not None and cached.get("date") == today_str:
+                    history_arr = cached.get("history", [])
+                else:
+                    history_arr = await self._fetch_history_chart(sym_upper)
+                    cache.set_history("yahoo", sym_upper, {"date": today_str, "history": history_arr})
+                    
+                row = builder.build_history_quote(
+                    sym=sym_upper,
+                    low_52w=r.get("fiftyTwoWeekLow"),
+                    high_52w=r.get("fiftyTwoWeekHigh"),
+                    avg_volume=r.get("averageDailyVolume10Day"),
+                    pe_ratio=r.get("trailingPE"),
+                    dividend_rate=r.get("trailingAnnualDividendRate"),
+                    dividend_yield=r.get("trailingAnnualDividendYield"),
+                    market_cap=r.get("marketCap"),
+                    currency=r.get("currency", "USD"),
+                    history=history_arr,
+                )
+                results[sym_upper] = row
+                self._history_cache[sym_upper] = row
+
+            except Exception as e:
+                print(
+                    f"[stiq] History error for {sym_upper} (custom): {e}", file=sys.stderr
+                )
+                if not builder.is_market_open():
+                    row = builder.build_history_quote(sym_upper)
+                    self._history_cache[sym_upper] = row
+                    results[sym_upper] = row
+                elif sym_upper in self._history_cache:
+                    results[sym_upper] = self._history_cache[sym_upper]
+
+        return results
 
     def _get_headers(
         self, content_type: str = "application/json", include_origin: bool = True
     ) -> dict[str, str]:
         headers = {
             "Accept": "*/*",
-            "Accept-Encoding": "gzip",
+            "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "en-US,en;q=0.5",
             "Connection": "keep-alive",
             "Content-Type": content_type,
@@ -183,31 +229,37 @@ class YahooProvider(DataProvider):
             headers["Referer"] = "https://finance.yahoo.com"
         return headers
 
-    def _query_api(
-        self, url: str, content_type: str = "application/json"
-    ) -> dict[str, any]:
-        req = urllib.request.Request(
-            url, headers=self._get_headers(content_type=content_type)
-        )
-        resp = self.opener.open(req)
-        return json.loads(self._read_response(resp))
+    async def _query_api(
+        self, url: str, content_type: str = "application/json", is_text: bool = False
+    ) -> any:
+        await self._ensure_session()
+        headers = self._get_headers(content_type=content_type)
+        if url.startswith("https://query1.finance.yahoo.com/v1/test/getcrumb"):
+            headers["Origin"] = "https://finance.yahoo.com"
+            headers["Referer"] = "https://finance.yahoo.com"
+            
+        async with self.session.get(url, headers=headers) as resp:
+            resp.raise_for_status()
+            if is_text:
+                return await resp.text()
+            return await resp.json()
 
-    def _fetchCookies(self) -> bool | None:
-        req = urllib.request.Request(
-            "https://finance.yahoo.com/",
-            headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Encoding": "gzip",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Upgrade-Insecure-Requests": "1",
-            },
-        )
+    async def _fetchCookies(self) -> bool | None:
+        await self._ensure_session()
+        url = "https://finance.yahoo.com/"
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Upgrade-Insecure-Requests": "1",
+        }
         try:
-            resp = self.opener.open(req)
-            html = self._read_response(resp)
+            async with self.session.get(url, headers=headers) as resp:
+                html = await resp.text()
+                current_url = str(resp.url)
         except Exception as e:
             print(f"[stiq-custom] Error fetching initial cookies: {e}", file=sys.stderr)
             return False
@@ -215,58 +267,47 @@ class YahooProvider(DataProvider):
         a1 = self._get_a1_cookie()
         if not a1:
             # EU Consent Flow
-            url = resp.url
             try:
-                session_id_match = re.search(r"sessionId=(?:([A-Za-z0-9_-]*))", url)
-                csrf_token_match = re.search(r"gcrumb=(?:([A-Za-z0-9_]*))", url)
+                session_id_match = re.search(r"sessionId=(?:([A-Za-z0-9_-]*))", current_url)
+                csrf_token_match = re.search(r"gcrumb=(?:([A-Za-z0-9_]*))", current_url)
 
                 if session_id_match and csrf_token_match:
                     session_id = session_id_match.group(1)
                     csrf_token = csrf_token_match.group(1)
 
-                    form_data = urllib.parse.urlencode(
-                        {
-                            "csrfToken": csrf_token,
-                            "sessionId": session_id,
-                            "namespace": "yahoo",
-                            "agree": "agree",
-                        }
-                    ).encode()
+                    form_data = {
+                        "csrfToken": csrf_token,
+                        "sessionId": session_id,
+                        "namespace": "yahoo",
+                        "agree": "agree",
+                    }
 
-                    req2 = urllib.request.Request(
-                        f"https://consent.yahoo.com/v2/collectConsent?sessionId={session_id}",
-                        data=form_data,
-                        headers={
-                            "Content-Type": "application/x-www-form-urlencoded",
-                            "Origin": "https://consent.yahoo.com",
-                            "Referer": url,
-                        },
-                    )
-                    self.opener.open(req2)
+                    consent_url = f"https://consent.yahoo.com/v2/collectConsent?sessionId={session_id}"
+                    consent_headers = {
+                        "Origin": "https://consent.yahoo.com",
+                        "Referer": current_url,
+                    }
+                    async with self.session.post(consent_url, data=form_data, headers=consent_headers) as resp2:
+                        await resp2.text()
+                        
                     a1 = self._get_a1_cookie()
             except Exception as e:
                 print(f"[stiq-custom] Error in EU consent flow: {e}", file=sys.stderr)
                 return False
 
-        if not a1:
-            pass
-
         print(
-            f"[stiq-custom] Cookies acquired: {[c.name for c in self.cookie_jar]}",
+            f"[stiq-custom] Cookies acquired: {[c.key for c in self.session.cookie_jar]}",
             file=sys.stderr,
         )
         return None
 
-    def _fetchCrumb(self) -> bool:
+    async def _fetchCrumb(self) -> bool:
         try:
-            req_crumb = urllib.request.Request(
+            self.crumb = await self._query_api(
                 "https://query1.finance.yahoo.com/v1/test/getcrumb",
-                headers=self._get_headers(
-                    content_type="text/plain", include_origin=False
-                ),
+                content_type="text/plain",
+                is_text=True
             )
-            resp = self.opener.open(req_crumb)
-            self.crumb = self._read_response(resp)
             self.initialized = True
             return True
         except Exception as e:
@@ -274,25 +315,29 @@ class YahooProvider(DataProvider):
             return False
 
     def _get_a1_cookie(self) -> str | None:
-        for c in self.cookie_jar:
-            if c.name == "A1":
-                return f"{c.name}={c.value}"
+        if self.session and self.session.cookie_jar:
+            for cookie in self.session.cookie_jar:
+                if cookie.key == "A1":
+                    return f"{cookie.key}={cookie.value}"
         return None
 
-    def _initialize(self) -> bool:
+    async def _initialize(self) -> bool:
         if self.initialized:
             return True
+            
+        async with self._init_lock:
+            if self.initialized:
+                return True
+            await self._fetchCookies()
+            return await self._fetchCrumb()
 
-        self._fetchCookies()
-        return self._fetchCrumb()
-
-    def _fetch_history(self, symbol: str) -> list[float]:
-        if not self._initialize():
+    async def _fetch_history_chart(self, symbol: str) -> list[float]:
+        if not await self._initialize():
             return []
 
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1mo&crumb={self.crumb}"
         try:
-            data = self._query_api(url)
+            data = await self._query_api(url)
             result = data.get("chart", {}).get("result", [])
             if result:
                 indicators = result[0].get("indicators", {}).get("quote", [])

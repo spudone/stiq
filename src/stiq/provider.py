@@ -25,21 +25,74 @@ class DataProvider(ABC):
         pass
 
     @abstractmethod
-    async def fetch_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
-        """Fetches detailed quotes for a list of symbols"""
+    async def fetch_quotes(self, symbols: list[str]) -> dict[str, dict[str, any]]:
+        """Fetches realtime quotes for a list of symbols"""
         pass
+
+    @abstractmethod
+    async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, any]]:
+        """Fetches historical and fundamental data for a list of symbols"""
+        pass
+
+
+class MultiplexProvider(DataProvider):
+    """Routes different data fetch requests to independently configured providers."""
+    def __init__(self, market: DataProvider, quotes: DataProvider, history: DataProvider):
+        self.market = market
+        self.quotes = quotes
+        self.history = history
+
+    async def fetch_market(self) -> dict[str, any]:
+        return await self.market.fetch_market()
+
+    async def fetch_quotes(self, symbols: list[str]) -> dict[str, dict[str, any]]:
+        return await self.quotes.fetch_quotes(symbols)
+
+    async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, any]]:
+        return await self.history.fetch_history(symbols)
+
+
+_provider_instances: dict[str, DataProvider] = {}
+
+def _get_single_provider(name: str) -> DataProvider:
+    name = name.lower()
+    if name not in _provider_instances:
+        if name == "yfinance":
+            from .yfinance_provider import YFinanceProvider
+            _provider_instances[name] = YFinanceProvider()
+        elif name == "tiingo":
+            from .tiingo_provider import TiingoWebSocketProvider
+            _provider_instances[name] = TiingoWebSocketProvider()
+        else:
+            from .yahoo_provider import YahooProvider
+            _provider_instances[name] = YahooProvider()
+    return _provider_instances[name]
 
 
 def get_provider() -> DataProvider:
     """Factory to return the configured provider."""
-    provider_type = os.environ.get("STIQ_PROVIDER", "yahoo").lower()
+    from .config import config
+    from .builder import builder
     
-    if provider_type == "yfinance":
-        from .yfinance_provider import YFinanceProvider
-        return YFinanceProvider()
-    elif provider_type == "tiingo":
-        from .tiingo_provider import TiingoWebSocketProvider
-        return TiingoWebSocketProvider()
-    else:
-        from .yahoo_provider import YahooProvider
-        return YahooProvider()
+    market_prov = config.market_provider
+    quotes_prov = config.quotes_provider
+    history_prov = config.history_provider
+
+    # Intelligent weekend/closed market fallback for history and quotes
+    if not builder.is_market_open() and getattr(config, "weekend_provider", None):
+        history_prov = config.weekend_provider
+        quotes_prov = config.weekend_provider
+
+    # Legacy STIQ_PROVIDER environment variable from Makefile overrides config
+    env_prov = os.environ.get("STIQ_PROVIDER")
+    if env_prov:
+        env_prov = env_prov.lower()
+        market_prov = env_prov
+        quotes_prov = env_prov
+        history_prov = env_prov
+
+    return MultiplexProvider(
+        _get_single_provider(market_prov),
+        _get_single_provider(quotes_prov),
+        _get_single_provider(history_prov)
+    )
