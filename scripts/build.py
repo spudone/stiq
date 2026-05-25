@@ -63,13 +63,6 @@ def build():
 
     provider_type = os.environ.get("STIQ_PROVIDER", "yahoo").lower()
 
-    # Create a runtime hook to enforce the provider type at runtime
-    hook_file = "stiq_runtime_hook.py"
-    with open(hook_file, "w") as f:
-        f.write(f"import os\nos.environ['STIQ_PROVIDER'] = '{provider_type}'\n")
-    
-    cmd.extend(["--runtime-hook", hook_file])
-
     if provider_type == "yfinance":
         cmd.extend(["--hidden-import", "stiq.yfinance_provider"])
     elif provider_type == "tiingo":
@@ -79,10 +72,6 @@ def build():
 
     print("Starting PyInstaller build...")
     run_command(cmd)
-
-    # Cleanup the temporary hook file
-    if os.path.exists(hook_file):
-        os.remove(hook_file)
 
     print("\nBuild complete! Your executable is in the 'dist' folder.")
 

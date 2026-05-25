@@ -91,14 +91,9 @@ async def handle_get(path, qs, writer):
         data = await provider.fetch_quotes(symbol_list)
         await send_json(writer, data)
     elif path == "/api/watchlist":
-        provider_type = os.environ.get("STIQ_PROVIDER", "yahoo").lower()
         await send_json(
             writer,
-            {
-                "symbols": config.watchlist, 
-                "poll_interval": config.poll_interval,
-                "provider": provider_type
-            }
+            {"symbols": config.watchlist, "poll_interval": config.poll_interval}
         )
     elif path == "/api/shutdown":
         await send_response(writer, 200, "text/plain", b"Shutting down")

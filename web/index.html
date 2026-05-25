@@ -47,7 +47,7 @@
     <!-- ═══════════════════════════════════════════════════════════ -->
   <!-- MARKET OVERVIEW BAR -->
   <!-- ═══════════════════════════════════════════════════════════ -->
-  <section id="market-bar" class="bg-surface-800 border-b border-border px-4 py-1.5" x-show="provider !== 'tiingo'">
+  <section id="market-bar" class="bg-surface-800 border-b border-border px-4 py-1.5">
     <!-- Row 1: Dow, S&P 500, NASDAQ -->
     <div x-show="marketData.length > 0" class="flex flex-wrap gap-x-4 gap-y-1 text-xs mb-1">
       <template x-for="item in marketData.slice(0, 3)" :key="item.name">
@@ -87,15 +87,6 @@
     <p x-show="marketData.length === 0" class="text-text-muted text-xs italic">Loading market data…</p>
   </section>
 
-  <!-- ═══════════════════════════════════════════════════════════ -->
-  <!-- QUOTES-ONLY HEADER (Tiingo) -->
-  <!-- ═══════════════════════════════════════════════════════════ -->
-  <section id="quotes-only-bar" class="bg-surface-800 border-b border-border px-4 py-2" x-show="provider === 'tiingo'" style="display: none;">
-    <div class="flex items-center text-xs">
-      <span class="text-accent-cyan font-medium mr-2">Quotes-Only Mode:</span>
-      <span class="text-text-primary">Real-time Equities & ETFs via Tiingo IEX WebSocket</span>
-    </div>
-  </section>
 
 
 
