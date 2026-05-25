@@ -1,7 +1,5 @@
 .PHONY: setup build run run-yfinance run-tiingo-ws clean dist watch
 
-TIINGO_THRESHOLD ?= 5
-
 # Helper to detect OS for the binary name (used for build/watch targets)
 TAILWIND_BIN = $(shell python3 -c "import platform; print('tailwindcss.exe' if platform.system() == 'Windows' else 'tailwindcss')")
 
@@ -26,26 +24,26 @@ build: $(TAILWIND_BIN)
 # Launch the application (custom lightweight provider)
 run: setup
 	@echo "Launching Stiq..."
-	USE_YFINANCE=0 uv run python -m stiq.main
+	STIQ_PROVIDER=yahoo uv run python -m stiq.main
 
 # Launch the application (yfinance provider)
 run-yfinance: setup
 	@echo "Synchronizing heavy yfinance dependencies..."
 	uv sync --extra yfinance
 	@echo "Launching Stiq..."
-	USE_YFINANCE=1 uv run python -m stiq.main
+	STIQ_PROVIDER=yfinance uv run python -m stiq.main
 
 # Launch the application (tiingo websocket provider)
 run-tiingo: setup
 	@echo "Synchronizing websockets dependency..."
 	uv sync --extra tiingo-ws
 	@echo "Launching Stiq with Tiingo WebSocket provider..."
-	USE_TIINGO_WS=1 TIINGO_THRESHOLD=$(TIINGO_THRESHOLD) uv run python -m stiq.main
+	STIQ_PROVIDER=tiingo uv run python -m stiq.main
 
 # Create a standalone executable using the custom zero-dependency scraper
 dist: setup build
 	@echo "Creating standalone executable (custom provider)..."
-	USE_YFINANCE=0 uv run python3 scripts/build.py
+	STIQ_PROVIDER=yahoo uv run python3 scripts/build.py
 
 # Create a standalone executable using the yfinance library
 dist-yfinance: setup
@@ -54,7 +52,7 @@ dist-yfinance: setup
 	@echo "Building CSS..."
 	./$(TAILWIND_BIN) -i web/input.css -o web/style.css
 	@echo "Creating standalone executable (yfinance provider)..."
-	USE_YFINANCE=1 uv run python3 scripts/build.py
+	STIQ_PROVIDER=yfinance uv run python3 scripts/build.py
 
 # Create a standalone executable using the tiingo library
 dist-tiingo: setup
@@ -63,7 +61,7 @@ dist-tiingo: setup
 	@echo "Building CSS..."
 	./$(TAILWIND_BIN) -i web/input.css -o web/style.css
 	@echo "Creating standalone executable (tiingo provider)..."
-	USE_YFINANCE=1 uv run python3 scripts/build.py
+	STIQ_PROVIDER=tiingo uv run python3 scripts/build.py
 
 # Watch for CSS changes
 watch: $(TAILWIND_BIN)

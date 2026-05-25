@@ -1,6 +1,7 @@
 import sys
 import subprocess
 import platform
+import os
 
 # ELF Program Header Constants
 # PT_GNU_STACK signature (0x6474e551 little-endian)
@@ -60,10 +61,12 @@ def build():
         "--clean",
     ]
 
-    import os
+    provider_type = os.environ.get("STIQ_PROVIDER", "yahoo").lower()
 
-    if os.environ.get("USE_YFINANCE") == "1":
+    if provider_type == "yfinance":
         cmd.extend(["--hidden-import", "stiq.yfinance_provider"])
+    elif provider_type == "tiingo":
+        cmd.extend(["--hidden-import", "stiq.tiingo_provider", "--hidden-import", "websockets"])
     else:
         cmd.extend(["--hidden-import", "stiq.yahoo_provider"])
 

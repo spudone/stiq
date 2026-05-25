@@ -82,7 +82,7 @@ To debug the backend server in VSCode, you can create a `.vscode/launch.json` co
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "src",
-        "USE_YFINANCE": "0"
+        "STIQ_PROVIDER": "yahoo"
       },
       "console": "integratedTerminal"
     },
@@ -94,7 +94,7 @@ To debug the backend server in VSCode, you can create a `.vscode/launch.json` co
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "src",
-        "USE_YFINANCE": "1"
+        "STIQ_PROVIDER": "yfinance"
       },
       "console": "integratedTerminal"
     }

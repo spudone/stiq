@@ -32,15 +32,14 @@ class DataProvider(ABC):
 
 def get_provider() -> DataProvider:
     """Factory to return the configured provider."""
-    if os.environ.get("USE_YFINANCE") == "1":
+    provider_type = os.environ.get("STIQ_PROVIDER", "yahoo").lower()
+    
+    if provider_type == "yfinance":
         from .yfinance_provider import YFinanceProvider
-
         return YFinanceProvider()
-    elif os.environ.get("USE_TIINGO_WS") == "1":
+    elif provider_type == "tiingo":
         from .tiingo_provider import TiingoWebSocketProvider
-
         return TiingoWebSocketProvider()
     else:
         from .yahoo_provider import YahooProvider
-
         return YahooProvider()

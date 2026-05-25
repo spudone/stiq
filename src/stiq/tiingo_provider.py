@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import sys
+import urllib.request
 from datetime import date
 from typing import Any
 
@@ -126,9 +127,99 @@ class TiingoWebSocketProvider(DataProvider):
         if not self._started:
             self._started = True
             if self._api_key:
+                await self._seed_initial_data()
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._iex_connect_loop())
                 loop.create_task(self._fx_connect_loop())
+
+    async def _seed_initial_data(self) -> None:
+        """Seed initial values using the REST API for closed market or immediate display."""
+        cache_file = os.path.expanduser("~/.stiq/tiingo_cache.json")
+        
+        if builder.is_market_open():
+            if os.path.exists(cache_file):
+                try:
+                    os.remove(cache_file)
+                except Exception:
+                    pass
+            return
+            
+        try:
+            if os.path.exists(cache_file):
+                with open(cache_file, "r") as f:
+                    data = json.load(f)
+                    self._iex_cache = data.get("iex", {})
+                    self._fx_cache = data.get("fx", {})
+                return
+        except Exception as e:
+            print(f"[tiingo-ws] Error loading cache: {e}", file=sys.stderr)
+
+        try:
+            loop = asyncio.get_running_loop()
+            
+            # Seed IEX
+            iex_tickers = ",".join(self._get_iex_tickers())
+            if iex_tickers:
+                url_iex = f"https://api.tiingo.com/iex/?tickers={iex_tickers}&token={self._api_key}"
+                req_iex = urllib.request.Request(url_iex, headers={"Content-Type": "application/json"})
+                resp_iex = await loop.run_in_executor(None, urllib.request.urlopen, req_iex)
+                data_iex = json.loads(resp_iex.read().decode("utf-8"))
+                for r in data_iex:
+                    ticker = r.get("ticker", "").upper()
+                    price = _safe_float(r.get("tngoLast"))
+                    prev_close = _safe_float(r.get("prevClose"))
+                    open_price = _safe_float(r.get("open"))
+                    high = _safe_float(r.get("high"))
+                    low = _safe_float(r.get("low"))
+                    volume = _safe_float(r.get("volume"))
+                    
+                    normalized = builder.make_normalized_quote(
+                        price=price,
+                        prev_close=prev_close,
+                        open=open_price,
+                        high=high,
+                        low=low,
+                        volume=volume,
+                        currency="USD",
+                        history=[],
+                    )
+                    if ticker not in self._iex_cache:
+                        self._iex_cache[ticker] = normalized
+
+            # Seed FX
+            fx_tickers = ",".join(self._get_fx_tickers())
+            if fx_tickers:
+                url_fx = f"https://api.tiingo.com/tiingo/fx/top?tickers={fx_tickers}&token={self._api_key}"
+                req_fx = urllib.request.Request(url_fx, headers={"Content-Type": "application/json"})
+                resp_fx = await loop.run_in_executor(None, urllib.request.urlopen, req_fx)
+                data_fx = json.loads(resp_fx.read().decode("utf-8"))
+                for r in data_fx:
+                    ticker = r.get("ticker", "").lower()
+                    mid_price = _safe_float(r.get("midPrice"))
+                    bid_price = _safe_float(r.get("bidPrice"))
+                    ask_price = _safe_float(r.get("askPrice"))
+                    price = mid_price if mid_price > 0 else bid_price
+
+                    if ticker not in self._fx_cache:
+                        self._fx_cache[ticker] = {
+                            "price": price,
+                            "midPrice": mid_price,
+                            "bidPrice": bid_price,
+                            "askPrice": ask_price,
+                            "prevClose": price,
+                        }
+                        
+            try:
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                with open(cache_file, "w") as f:
+                    json.dump({
+                        "iex": self._iex_cache,
+                        "fx": self._fx_cache
+                    }, f, indent=4)
+            except Exception as e:
+                print(f"[tiingo-ws] Error saving cache: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"[tiingo-ws] Error seeding initial data: {e}", file=sys.stderr)
 
     # ────────────────────────────────────────────────────────────────
     # IEX WebSocket
@@ -182,18 +273,11 @@ class TiingoWebSocketProvider(DataProvider):
         tickers = self._get_iex_tickers()
         self._current_iex_tickers = set(t.upper() for t in tickers)
         
-        threshold = os.environ.get("TIINGO_THRESHOLD", "5")
-        try:
-            threshold_val = int(threshold)
-        except ValueError:
-            threshold_val = 5
-
         subscribe_msg = {
             "eventName": "subscribe",
             "authorization": self._api_key,
             "eventData": {
                 "tickers": tickers,
-                "thresholdLevel": threshold_val,
             },
         }
         await ws.send(json.dumps(subscribe_msg))
@@ -411,7 +495,24 @@ class TiingoWebSocketProvider(DataProvider):
         if not builder.is_market_open() and self._market_cache:
             return self._market_cache
 
-        result = {"indices": [], "is_open": builder.is_market_open()}
+        indices = []
+        for name, info in _MARKET_PROXY_MAP.items():
+            feed = info["feed"]
+            label = info["label"]
+            proxy = info["proxy"]
+            
+            quote = None
+            if feed == "iex":
+                quote = self._iex_cache.get(proxy.upper())
+            elif feed == "fx":
+                quote = self._fx_cache.get(proxy.lower())
+                
+            if quote:
+                indices.append(builder.build_market_index(label, quote))
+            else:
+                indices.append({"name": label, "value": None, "change": 0.0})
+
+        result = {"indices": indices, "is_open": builder.is_market_open()}
         self._market_cache = result
         return result
 
