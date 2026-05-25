@@ -71,6 +71,7 @@ function stiq() {
     pollInterval: DEFAULT_INTERVAL, // In seconds
     sortKey: "quote",
     sortAsc: true,
+    provider: "yahoo",
 
     // ── Init ───────────────────────────────────────────────
     async init() {
@@ -81,6 +82,7 @@ function stiq() {
         if (config) {
           this.quotes = config.symbols || [];
           this.pollInterval = config.poll_interval || DEFAULT_INTERVAL;
+          this.provider = config.provider || "yahoo";
         }
       } catch (err) {
         console.error("Error loading watchlist:", err);
