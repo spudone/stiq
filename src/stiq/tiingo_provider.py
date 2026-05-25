@@ -95,7 +95,10 @@ class TiingoWebSocketProvider(DataProvider):
         if not self._api_key:
             print("[tiingo-ws] WARNING: TIINGO_API_KEY not set", file=sys.stderr)
 
-
+        try:
+            self._threshold = int(os.environ.get("TIINGO_THRESHOLD", "5"))
+        except ValueError:
+            self._threshold = 5
 
         # ── Caches ──────────────────────────────────────────────────
         self._iex_cache: dict[str, dict] = {}  # ticker → normalized quote dict
@@ -150,7 +153,6 @@ class TiingoWebSocketProvider(DataProvider):
                     data = json.load(f)
                     self._iex_cache = data.get("iex", {})
                     self._fx_cache = data.get("fx", {})
-                return
         except Exception as e:
             print(f"[tiingo-ws] Error loading cache: {e}", file=sys.stderr)
 
@@ -158,8 +160,10 @@ class TiingoWebSocketProvider(DataProvider):
             loop = asyncio.get_running_loop()
             
             # Seed IEX
-            iex_tickers = ",".join(self._get_iex_tickers())
-            if iex_tickers:
+            iex_desired = self._get_iex_tickers()
+            missing_iex = [t for t in iex_desired if t.upper() not in self._iex_cache]
+            if missing_iex:
+                iex_tickers = ",".join(missing_iex)
                 url_iex = f"https://api.tiingo.com/iex/?tickers={iex_tickers}&token={self._api_key}"
                 req_iex = urllib.request.Request(url_iex, headers={"Content-Type": "application/json"})
                 resp_iex = await loop.run_in_executor(None, urllib.request.urlopen, req_iex)
@@ -187,8 +191,10 @@ class TiingoWebSocketProvider(DataProvider):
                         self._iex_cache[ticker] = normalized
 
             # Seed FX
-            fx_tickers = ",".join(self._get_fx_tickers())
-            if fx_tickers:
+            fx_desired = self._get_fx_tickers()
+            missing_fx = [t for t in fx_desired if t.lower() not in self._fx_cache]
+            if missing_fx:
+                fx_tickers = ",".join(missing_fx)
                 url_fx = f"https://api.tiingo.com/tiingo/fx/top?tickers={fx_tickers}&token={self._api_key}"
                 req_fx = urllib.request.Request(url_fx, headers={"Content-Type": "application/json"})
                 resp_fx = await loop.run_in_executor(None, urllib.request.urlopen, req_fx)
@@ -209,15 +215,17 @@ class TiingoWebSocketProvider(DataProvider):
                             "prevClose": price,
                         }
                         
-            try:
-                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
-                with open(cache_file, "w") as f:
-                    json.dump({
-                        "iex": self._iex_cache,
-                        "fx": self._fx_cache
-                    }, f, indent=4)
-            except Exception as e:
-                print(f"[tiingo-ws] Error saving cache: {e}", file=sys.stderr)
+            # Save cache if we fetched anything
+            if missing_iex or missing_fx:
+                try:
+                    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                    with open(cache_file, "w") as f:
+                        json.dump({
+                            "iex": self._iex_cache,
+                            "fx": self._fx_cache
+                        }, f, indent=4)
+                except Exception as e:
+                    print(f"[tiingo-ws] Error saving cache: {e}", file=sys.stderr)
         except Exception as e:
             print(f"[tiingo-ws] Error seeding initial data: {e}", file=sys.stderr)
 
@@ -250,6 +258,7 @@ class TiingoWebSocketProvider(DataProvider):
                 print("[tiingo-ws] IEX connecting…", file=sys.stderr)
                 async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
                     self._iex_ws = ws
+                    backoff = 1.0
                     await self._on_iex_open(ws)
                     async for message in ws:
                         self._on_iex_message(message)
@@ -277,6 +286,7 @@ class TiingoWebSocketProvider(DataProvider):
             "eventName": "subscribe",
             "authorization": self._api_key,
             "eventData": {
+                "thresholdLevel": self._threshold,
                 "tickers": tickers,
             },
         }
@@ -353,6 +363,7 @@ class TiingoWebSocketProvider(DataProvider):
                 print("[tiingo-ws] FX connecting…", file=sys.stderr)
                 async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
                     self._fx_ws = ws
+                    backoff = 1.0
                     await self._on_fx_open(ws)
                     async for message in ws:
                         self._on_fx_message(message)
@@ -379,6 +390,7 @@ class TiingoWebSocketProvider(DataProvider):
             "eventName": "subscribe",
             "authorization": self._api_key,
             "eventData": {
+                "thresholdLevel": self._threshold,
                 "tickers": tickers,
             },
         }
@@ -463,6 +475,7 @@ class TiingoWebSocketProvider(DataProvider):
                     "eventName": "subscribe",
                     "authorization": self._api_key,
                     "eventData": {
+                        "thresholdLevel": self._threshold,
                         "tickers": sorted(new_tickers),
                     },
                 }
@@ -490,10 +503,6 @@ class TiingoWebSocketProvider(DataProvider):
 
     async def fetch_market(self) -> dict[str, any]:
         await self._ensure_started()
-
-        # Return cached result when market is closed
-        if not builder.is_market_open() and self._market_cache:
-            return self._market_cache
 
         indices = []
         for name, info in _MARKET_PROXY_MAP.items():
@@ -524,20 +533,6 @@ class TiingoWebSocketProvider(DataProvider):
 
         # Update subscriptions if watchlist changed
         await self._update_iex_subscriptions()
-
-        # Return cache when market is closed
-        if not builder.is_market_open():
-            results = []
-            all_cached = True
-            for sym in symbols:
-                sym_upper = sym.upper()
-                if sym_upper in self._quotes_cache:
-                    results.append(self._quotes_cache[sym_upper])
-                else:
-                    all_cached = False
-                    break
-            if all_cached:
-                return results
 
         results = []
         for sym in symbols:
