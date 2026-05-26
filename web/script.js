@@ -114,6 +114,12 @@ function stiq() {
       window.addEventListener("beforeunload", () => {
         navigator.sendBeacon("/api/shutdown");
       });
+      
+      if (this.provider === "tiingo") {
+        setInterval(() => {
+          this.lastUpdated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        }, 1000);
+      }
     },
 
     // ── SSE / Stream Management ───────────────────────────

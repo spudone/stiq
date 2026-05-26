@@ -49,14 +49,31 @@ class TiingoWebSocketProvider(DataProvider):
     def _handle_tiingo_quote(self, quote_data: dict[str, Any]) -> None:
         """Callback from AsyncTiingoClient when a valid realtime quote arrives."""
         ticker = quote_data["ticker"]
+        existing = self._iex_cache.get(ticker) or self._quotes_cache.get(ticker) or {}
+
+        price = quote_data["price"]
+        prev_close = quote_data.get("prev_close") or existing.get("prevClose") or 0.0
+        if not prev_close and "last" in existing and "change" in existing:
+            prev_close = existing["last"] - existing["change"]
+
+        open_val = quote_data.get("open") or existing.get("open") or 0.0
+        high = quote_data.get("high") or existing.get("high") or 0.0
+        low = quote_data.get("low") or existing.get("low") or 0.0
+        volume = quote_data.get("volume") or existing.get("volume") or 0.0
+
+        if price > high:
+            high = price
+        if price < low and price > 0:
+            low = price
+
         normalized = builder.build_realtime_quote(
             sym=ticker,
-            price=quote_data["price"],
-            prev_close=quote_data["prev_close"],
-            open=quote_data["open"],
-            high=quote_data["high"],
-            low=quote_data["low"],
-            volume=quote_data["volume"],
+            price=price,
+            prev_close=prev_close,
+            open=open_val,
+            high=high,
+            low=low,
+            volume=volume,
         )
         self._iex_cache[ticker] = normalized
         self._quotes_cache[ticker] = normalized

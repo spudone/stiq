@@ -144,10 +144,13 @@ class AsyncTiingoClient:
     async def _send_subscribe(self, tickers: list[str]) -> None:
         if not self._iex_ws:
             return
+        from .config import config
+
         msg = {
             "eventName": "subscribe",
             "authorization": self.api_key,
             "eventData": {
+                "thresholdLevel": config.tiingo_threshold_level,
                 "tickers": sorted(tickers),
             },
         }
@@ -217,18 +220,32 @@ class AsyncTiingoClient:
 
         if msg_type == "A":
             data = msg.get("data", [])
-            if not isinstance(data, list) or len(data) < 5:
+            if not isinstance(data, list) or len(data) < 3:
                 return
 
-            ticker = str(data[_IEX_TICKER]).upper()
-            price = _safe_float(data[_IEX_TNGOLAST])
-            prev_close = (
-                _safe_float(data[_IEX_PREVCLOSE]) if len(data) > _IEX_PREVCLOSE else 0.0
-            )
-            open_price = _safe_float(data[_IEX_OPEN]) if len(data) > _IEX_OPEN else 0.0
-            high = _safe_float(data[_IEX_HIGH]) if len(data) > _IEX_HIGH else 0.0
-            low = _safe_float(data[_IEX_LOW]) if len(data) > _IEX_LOW else 0.0
-            volume = _safe_float(data[_IEX_VOLUME]) if len(data) > _IEX_VOLUME else 0.0
+            if len(data) == 3:
+                # Reference price (thresholdLevel 6)
+                ticker = str(data[1]).upper()
+                price = _safe_float(data[2])
+                prev_close = 0.0
+                open_price = 0.0
+                high = 0.0
+                low = 0.0
+                volume = 0.0
+            else:
+                # Top-of-Book / Last Trade (thresholdLevel 0 or 5)
+                # Index 0: Message Type ("T", "Q", "B")
+                update_type = str(data[0]) if len(data) > 0 else ""
+                if update_type in ("T", "B") and len(data) > 9:
+                    ticker = str(data[3]).upper()
+                    price = _safe_float(data[9])
+                    prev_close = 0.0
+                    open_price = 0.0
+                    high = 0.0
+                    low = 0.0
+                    volume = _safe_float(data[10]) if len(data) > 10 else 0.0
+                else:
+                    return
 
             if price <= 0:
                 return
