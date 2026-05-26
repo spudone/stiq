@@ -49,7 +49,7 @@ class DataProvider(ABC):
 
     @abstractmethod
     async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, any]]:
-        """Fetches historical and fundamental data for a list of symbols"""
+        """Fetches historical data for a list of symbols"""
         pass
 
 

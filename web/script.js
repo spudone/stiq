@@ -68,6 +68,12 @@ const fmt = {
     if (isNaN(n)) return "\u2014";
     return (n * 100).toFixed(2) + "%";
   },
+  bandwidth(val) {
+    if (val === null || val === undefined) return "0.00 MB";
+    const n = parseFloat(val);
+    if (isNaN(n)) return "0.00 MB";
+    return n.toFixed(2) + " MB";
+  },
 };
 
 function stiq() {
@@ -87,6 +93,16 @@ function stiq() {
     sortKey: "quote",
     sortAsc: true,
     provider: "yahoo",
+    historyProvider: "yahoo",
+    weekendProvider: "yahoo",
+    tiingoUsage: { hourly_requests: 0, daily_requests: 0, monthly_bandwidth_mb: 0.0 },
+
+    isTiingoActive() {
+      return this.provider === 'tiingo' || 
+             this.marketProvider === 'tiingo' || 
+             this.historyProvider === 'tiingo' || 
+             this.weekendProvider === 'tiingo';
+    },
 
     // ── Init ───────────────────────────────────────────────
     async init() {
@@ -99,9 +115,20 @@ function stiq() {
           this.pollInterval = config.poll_interval_secs || DEFAULT_INTERVAL;
           this.provider = config.provider || "yahoo";
           this.marketProvider = config.market_provider || "yahoo";
+          this.historyProvider = config.history_provider || "yahoo";
+          this.weekendProvider = config.weekend_provider || "yahoo";
         }
       } catch (err) {
         console.error("Error loading watchlist:", err);
+      }
+
+      if (this.isTiingoActive()) {
+        try {
+          const usageResp = await fetch("/api/tiingo_usage");
+          this.tiingoUsage = await usageResp.json();
+        } catch (err) {
+          console.error("Error loading tiingo usage:", err);
+        }
       }
 
       // Initial data fetch
@@ -172,6 +199,8 @@ function stiq() {
               this.quoteData[idx] = { ...this.quoteData[idx], ...q };
             }
             this.lastUpdated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          } else if (payload.type === "tiingo_usage") {
+            this.tiingoUsage = payload.data;
           }
         } catch (e) {
           console.error("SSE parse error", e);
