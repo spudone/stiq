@@ -1,3 +1,21 @@
+"""
+Stiq - Stock Ticker
+Copyright (C) 2026 spudone
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 import sys
 import subprocess
 import platform
@@ -67,13 +85,15 @@ def build():
     hook_file = "stiq_runtime_hook.py"
     with open(hook_file, "w") as f:
         f.write(f"import os\nos.environ['STIQ_PROVIDER'] = '{provider_type}'\n")
-    
+
     cmd.extend(["--runtime-hook", hook_file])
 
     if provider_type == "yfinance":
         cmd.extend(["--hidden-import", "stiq.yfinance_provider"])
     elif provider_type == "tiingo":
-        cmd.extend(["--hidden-import", "stiq.tiingo_provider", "--hidden-import", "websockets"])
+        cmd.extend(
+            ["--hidden-import", "stiq.tiingo_provider", "--hidden-import", "websockets"]
+        )
     else:
         cmd.extend(["--hidden-import", "stiq.yahoo_provider"])
 

@@ -2,6 +2,9 @@
 
 **Stiq** is a high-density, browser-based stock quote tracker for tracking global markets and individual quotes.
 
+## License
+This project is licensed under the GNU Affero General Public License v3.0.
+
 ## Features
 
 - **High-Density UI:** Compact financial layout designed for maximum information at a glance.

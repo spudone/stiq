@@ -1,3 +1,21 @@
+"""
+Stiq - Stock Ticker
+Copyright (C) 2026 spudone
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 import os
 from abc import ABC, abstractmethod
 
@@ -37,7 +55,10 @@ class DataProvider(ABC):
 
 class MultiplexProvider(DataProvider):
     """Routes different data fetch requests to independently configured providers."""
-    def __init__(self, market: DataProvider, quotes: DataProvider, history: DataProvider):
+
+    def __init__(
+        self, market: DataProvider, quotes: DataProvider, history: DataProvider
+    ):
         self.market = market
         self.quotes = quotes
         self.history = history
@@ -54,17 +75,21 @@ class MultiplexProvider(DataProvider):
 
 _provider_instances: dict[str, DataProvider] = {}
 
+
 def _get_single_provider(name: str) -> DataProvider:
     name = name.lower()
     if name not in _provider_instances:
         if name == "yfinance":
             from .yfinance_provider import YFinanceProvider
+
             _provider_instances[name] = YFinanceProvider()
         elif name == "tiingo":
             from .tiingo_provider import TiingoWebSocketProvider
+
             _provider_instances[name] = TiingoWebSocketProvider()
         else:
             from .yahoo_provider import YahooProvider
+
             _provider_instances[name] = YahooProvider()
     return _provider_instances[name]
 
@@ -73,7 +98,7 @@ def get_provider() -> DataProvider:
     """Factory to return the configured provider."""
     from .config import config
     from .builder import builder
-    
+
     market_prov = config.market_provider
     quotes_prov = config.quotes_provider
     history_prov = config.history_provider
@@ -94,5 +119,5 @@ def get_provider() -> DataProvider:
     return MultiplexProvider(
         _get_single_provider(market_prov),
         _get_single_provider(quotes_prov),
-        _get_single_provider(history_prov)
+        _get_single_provider(history_prov),
     )

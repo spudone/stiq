@@ -1,10 +1,25 @@
-import asyncio
-import json
-import re
-import sys
-import urllib.parse
+"""
+Stiq - Stock Ticker
+Copyright (C) 2026 spudone
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
 
 import aiohttp
+import asyncio
+import re
+import sys
 
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
 from .cache import cache
@@ -18,7 +33,7 @@ class YahooProvider(DataProvider):
         self._market_cache = None
         self._quotes_cache = {}
         self._history_cache = {}
-        
+
         self.session: aiohttp.ClientSession | None = None
         self._user_agent = _DEFAULT_USER_AGENT
         self.crumb = None
@@ -28,10 +43,12 @@ class YahooProvider(DataProvider):
     async def _ensure_session(self) -> None:
         if self.session is None:
             self.session = aiohttp.ClientSession(
-                cookie_jar=aiohttp.CookieJar(unsafe=True),  # unsafe=True needed for IP addresses if any, fine for Yahoo
+                cookie_jar=aiohttp.CookieJar(
+                    unsafe=True
+                ),  # unsafe=True needed for IP addresses if any, fine for Yahoo
                 headers={"User-Agent": self._user_agent},
                 max_line_size=32768,
-                max_field_size=32768
+                max_field_size=32768,
             )
 
     async def fetch_market(self) -> dict[str, any]:
@@ -43,7 +60,9 @@ class YahooProvider(DataProvider):
 
         try:
             raw_quotes = await self._fetch_raw_quotes(symbols)
-            quotes_map = {r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")}
+            quotes_map = {
+                r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")
+            }
             indices = []
 
             for sym, name in zip(symbols, names):
@@ -53,10 +72,12 @@ class YahooProvider(DataProvider):
                     prev_close = q.get("regularMarketPreviousClose", 0)
                     change_pct = q.get("regularMarketChangePercent")
                     if change_pct is None:
-                        change_pct = ((price - prev_close) / prev_close * 100) if prev_close and prev_close != 0 else 0.0
-                    indices.append(
-                        builder.build_market_index(name, price, change_pct)
-                    )
+                        change_pct = (
+                            ((price - prev_close) / prev_close * 100)
+                            if prev_close and prev_close != 0
+                            else 0.0
+                        )
+                    indices.append(builder.build_market_index(name, price, change_pct))
                 except Exception:
                     indices.append({"name": name, "value": None, "change": 0.0})
 
@@ -70,12 +91,12 @@ class YahooProvider(DataProvider):
                 return self._market_cache
             return {"indices": [], "is_open": False}
 
-    def _chunk_symbols(self, symbols: list[str], chunk_size: int = 500) -> list[list[str]]:
-        return [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
+    def _chunk_symbols(
+        self, symbols: list[str], chunk_size: int = 500
+    ) -> list[list[str]]:
+        return [symbols[i : i + chunk_size] for i in range(0, len(symbols), chunk_size)]
 
-    async def _fetch_raw_quotes(
-        self, symbols: list[str]
-    ) -> list[dict[str, any]]:
+    async def _fetch_raw_quotes(self, symbols: list[str]) -> list[dict[str, any]]:
         if not await self._initialize() or not symbols:
             return []
 
@@ -86,13 +107,14 @@ class YahooProvider(DataProvider):
                 data = await self._query_api(url)
                 all_results.extend(data.get("quoteResponse", {}).get("result", []))
             except Exception as e:
-                print(f"[stiq-custom] Error fetching raw quote data for chunk: {e}", file=sys.stderr)
-                
+                print(
+                    f"[stiq-custom] Error fetching raw quote data for chunk: {e}",
+                    file=sys.stderr,
+                )
+
         return all_results
 
-    async def fetch_quotes(
-        self, symbols: list[str]
-    ) -> dict[str, dict[str, any]]:
+    async def fetch_quotes(self, symbols: list[str]) -> dict[str, dict[str, any]]:
         if not symbols:
             return {}
 
@@ -110,9 +132,11 @@ class YahooProvider(DataProvider):
                 return results
 
         raw_quotes = await self._fetch_raw_quotes(symbols)
-        quotes_map = {r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")}
+        quotes_map = {
+            r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")
+        }
         results = {}
-        
+
         for sym in symbols:
             sym_upper = sym.upper()
             try:
@@ -143,9 +167,7 @@ class YahooProvider(DataProvider):
 
         return results
 
-    async def fetch_history(
-        self, symbols: list[str]
-    ) -> dict[str, dict[str, any]]:
+    async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, any]]:
         if not symbols:
             return {}
 
@@ -163,24 +185,29 @@ class YahooProvider(DataProvider):
                 return results
 
         raw_quotes = await self._fetch_raw_quotes(symbols)
-        quotes_map = {r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")}
+        quotes_map = {
+            r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")
+        }
         results = {}
 
         for sym in symbols:
             sym_upper = sym.upper()
             try:
                 r = quotes_map.get(sym_upper, {})
-                
+
                 from datetime import date
+
                 today_str = date.today().isoformat()
-                
+
                 cached = cache.get_history("yahoo", sym_upper)
                 if cached is not None and cached.get("date") == today_str:
                     history_arr = cached.get("history", [])
                 else:
                     history_arr = await self._fetch_history_chart(sym_upper)
-                    cache.set_history("yahoo", sym_upper, {"date": today_str, "history": history_arr})
-                    
+                    cache.set_history(
+                        "yahoo", sym_upper, {"date": today_str, "history": history_arr}
+                    )
+
                 row = builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=r.get("fiftyTwoWeekLow"),
@@ -198,7 +225,8 @@ class YahooProvider(DataProvider):
 
             except Exception as e:
                 print(
-                    f"[stiq] History error for {sym_upper} (custom): {e}", file=sys.stderr
+                    f"[stiq] History error for {sym_upper} (custom): {e}",
+                    file=sys.stderr,
                 )
                 if not builder.is_market_open():
                     row = builder.build_history_quote(sym_upper)
@@ -237,7 +265,7 @@ class YahooProvider(DataProvider):
         if url.startswith("https://query1.finance.yahoo.com/v1/test/getcrumb"):
             headers["Origin"] = "https://finance.yahoo.com"
             headers["Referer"] = "https://finance.yahoo.com"
-            
+
         async with self.session.get(url, headers=headers) as resp:
             resp.raise_for_status()
             if is_text:
@@ -268,7 +296,9 @@ class YahooProvider(DataProvider):
         if not a1:
             # EU Consent Flow
             try:
-                session_id_match = re.search(r"sessionId=(?:([A-Za-z0-9_-]*))", current_url)
+                session_id_match = re.search(
+                    r"sessionId=(?:([A-Za-z0-9_-]*))", current_url
+                )
                 csrf_token_match = re.search(r"gcrumb=(?:([A-Za-z0-9_]*))", current_url)
 
                 if session_id_match and csrf_token_match:
@@ -287,9 +317,11 @@ class YahooProvider(DataProvider):
                         "Origin": "https://consent.yahoo.com",
                         "Referer": current_url,
                     }
-                    async with self.session.post(consent_url, data=form_data, headers=consent_headers) as resp2:
+                    async with self.session.post(
+                        consent_url, data=form_data, headers=consent_headers
+                    ) as resp2:
                         await resp2.text()
-                        
+
                     a1 = self._get_a1_cookie()
             except Exception as e:
                 print(f"[stiq-custom] Error in EU consent flow: {e}", file=sys.stderr)
@@ -306,7 +338,7 @@ class YahooProvider(DataProvider):
             self.crumb = await self._query_api(
                 "https://query1.finance.yahoo.com/v1/test/getcrumb",
                 content_type="text/plain",
-                is_text=True
+                is_text=True,
             )
             self.initialized = True
             return True
@@ -324,7 +356,7 @@ class YahooProvider(DataProvider):
     async def _initialize(self) -> bool:
         if self.initialized:
             return True
-            
+
         async with self._init_lock:
             if self.initialized:
                 return True

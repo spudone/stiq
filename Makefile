@@ -27,7 +27,7 @@ build: $(TAILWIND_BIN)
 	./$(TAILWIND_BIN) -i web/input.css -o web/style.css
 
 # Launch the application (uses config.json or defaults to yahoo)
-run: setup
+run: setup build
 	@echo "Launching Stiq..."
 	uv run python -m stiq.main
 
