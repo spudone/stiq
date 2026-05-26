@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import asyncio
+import signal
 import json
 import mimetypes
 import os
@@ -30,6 +31,7 @@ from stiq.provider import get_provider
 from stiq.config import config
 from stiq.events import event_bus
 from stiq.builder import builder
+from stiq.tiingo_usage import tiingo_usage_tracker
 
 provider = get_provider()
 
@@ -95,6 +97,7 @@ async def send_error(writer, status_code, message):
 async def delayed_exit(delay):
     """Wait and then shut down the application process."""
     await asyncio.sleep(delay)
+    tiingo_usage_tracker.save()
     os._exit(0)
 
 
@@ -163,9 +166,14 @@ async def handle_get(path, qs, writer):
                 "poll_interval_secs": config.poll_interval_secs,
                 "provider": config.quotes_provider,
                 "market_provider": config.market_provider,
+                "history_provider": config.history_provider,
+                "weekend_provider": config.weekend_provider,
             },
         )
+    elif path == "/api/tiingo_usage":
+        await send_json(writer, tiingo_usage_tracker.get_usage_dict())
     elif path == "/api/shutdown":
+        tiingo_usage_tracker.save()
         await send_response(writer, 200, "text/plain", b"Shutting down")
         print("\n[stiq] Browser window closed. Shutting down…")
         asyncio.create_task(delayed_exit(0.5))
@@ -219,6 +227,7 @@ async def handle_post(path, qs, writer):
         else:
             await send_error(writer, 400, "Missing seconds parameter")
     elif path == "/api/shutdown":
+        tiingo_usage_tracker.save()
         await send_response(writer, 200, "text/plain", b"Shutting down")
         print("\n[stiq] Browser window closed. Shutting down…")
         asyncio.create_task(delayed_exit(0.5))
@@ -349,11 +358,21 @@ async def main_async():
 
     print(f"[stiq] Starting application on {url}")
 
-    # Start background poller
+    # Start background tasks
     asyncio.create_task(background_poller())
+    asyncio.create_task(tiingo_usage_tracker.periodic_save(60))
 
     # Launch Chrome app window or fallback
     launch_app_window(url)
+
+    # Handle SIGTERM gracefully
+    def handle_sigterm():
+        tiingo_usage_tracker.save()
+        print("\n[stiq] SIGTERM received. Shutting down…", file=sys.stderr)
+        os._exit(0)
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGTERM, handle_sigterm)
 
     async with server:
         await server.serve_forever()
@@ -363,6 +382,7 @@ def main():
     try:
         asyncio.run(main_async())
     except KeyboardInterrupt:
+        tiingo_usage_tracker.save()
         print("\n[stiq] Shutting down…")
 
 

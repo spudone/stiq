@@ -27,6 +27,7 @@ from datetime import datetime, timedelta, date
 from typing import Any, Callable
 
 from .cache import cache
+from .tiingo_usage import tiingo_usage_tracker
 
 # IEX data array field positions (thresholdLevel 5)
 _IEX_TICKER = 1
@@ -81,7 +82,11 @@ class AsyncTiingoClient:
         async with aiohttp.ClientSession(headers=self._get_headers()) as session:
             async with session.get(url, params=params) as response:
                 response.raise_for_status()
-                return await response.json()
+                # Track request usage
+                req_bytes = len(url) + sum(len(k) + len(v) for k, v in response.request_info.headers.items())
+                body_bytes = await response.read()
+                await tiingo_usage_tracker.track_request(req_bytes, len(body_bytes))
+                return json.loads(body_bytes)
 
     async def get_iex_quotes(self, tickers: list[str]) -> list[dict[str, Any]]:
         """Fetch latest IEX quotes for a list of tickers via REST."""
@@ -154,7 +159,9 @@ class AsyncTiingoClient:
                 "tickers": sorted(tickers),
             },
         }
-        await self._iex_ws.send(json.dumps(msg))
+        msg_str = json.dumps(msg)
+        await self._iex_ws.send(msg_str)
+        await tiingo_usage_tracker.track_ws_bytes(len(msg_str.encode("utf-8")))
 
     async def subscribe_iex(self, tickers: list[str]) -> None:
         """Dynamically update IEX subscriptions."""
@@ -187,7 +194,9 @@ class AsyncTiingoClient:
                         "tickers": sorted(removed_tickers),
                     },
                 }
-                await ws.send(json.dumps(msg))
+                msg_str = json.dumps(msg)
+                await ws.send(msg_str)
+                await tiingo_usage_tracker.track_ws_bytes(len(msg_str.encode("utf-8")))
                 print(
                     f"[tiingo-ws] IEX removed tickers: {sorted(removed_tickers)}",
                     file=sys.stderr,
@@ -199,6 +208,13 @@ class AsyncTiingoClient:
 
     def _on_iex_message(self, raw_msg: str | bytes) -> None:
         try:
+            # We track ws bandwidth inside an async task since the track_ws_bytes method is async
+            if isinstance(raw_msg, bytes):
+                msg_len = len(raw_msg)
+            else:
+                msg_len = len(raw_msg.encode("utf-8"))
+            asyncio.create_task(tiingo_usage_tracker.track_ws_bytes(msg_len))
+
             msg = json.loads(raw_msg)
         except json.JSONDecodeError:
             return
@@ -264,7 +280,7 @@ class AsyncTiingoClient:
                 self.on_quote(parsed)
 
     # ────────────────────────────────────────────────────────────────
-    # Historical / Fundamentals Management
+    # History Management
     # ────────────────────────────────────────────────────────────────
 
     def get_cached_history(self, ticker: str) -> dict[str, Any] | None:
@@ -286,9 +302,9 @@ class AsyncTiingoClient:
                 return cache.get_history("tiingo", ticker) or {}
 
             today_str = date.today().isoformat()
-            fund = cache.get_history("tiingo", ticker) or {}
-            if fund.get("last_updated") == today_str:
-                return fund
+            history_data = cache.get_history("tiingo", ticker) or {}
+            if history_data.get("last_updated") == today_str:
+                return history_data
 
             from .config import config
 
@@ -299,9 +315,9 @@ class AsyncTiingoClient:
                 lock_acquired = True
 
                 # Double check
-                fund = cache.get_history("tiingo", ticker) or {}
-                if fund.get("last_updated") == today_str:
-                    return fund
+                history_data = cache.get_history("tiingo", ticker) or {}
+                if history_data.get("last_updated") == today_str:
+                    return history_data
 
                 now = time.time()
                 time_since_last = now - self._last_request_time
@@ -315,7 +331,7 @@ class AsyncTiingoClient:
                 one_year_ago_dt = datetime.now() - timedelta(days=365)
                 one_year_ago = one_year_ago_dt.strftime("%Y-%m-%d")
 
-                existing_prices = fund.get("raw_prices", [])
+                existing_prices = history_data.get("raw_prices", [])
                 startDate = None
                 if history_data.get("raw_prices") and history_data.get("last_updated"):
                     try:

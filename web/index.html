@@ -247,6 +247,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
         </div>
       </template>
 
+      <template x-if="isTiingoActive()">
+        <span class="ml-2 text-text-muted">
+          Hourly: <span class="text-text-primary" x-text="tiingoUsage.hourly_requests">0</span> |
+          Daily: <span class="text-text-primary" x-text="tiingoUsage.daily_requests">0</span> |
+          Monthly: <span class="text-text-primary" x-text="fmt.bandwidth(tiingoUsage.monthly_bandwidth_mb)">0.00 MB</span>
+        </span>
+      </template>
+
       <template x-if="marketOpen && provider !== 'tiingo'">
         <div class="flex items-center gap-1">
           <span>Quotes:</span>
