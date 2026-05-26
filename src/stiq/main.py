@@ -29,6 +29,7 @@ from datetime import datetime
 from stiq.provider import get_provider
 from stiq.config import config
 from stiq.events import event_bus
+from stiq.builder import builder
 
 provider = get_provider()
 

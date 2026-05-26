@@ -31,6 +31,7 @@ class ConfigManager:
         self.history_provider: str = "yahoo"
         self.weekend_provider: str = "yahoo"
         self.use_rate_limit: bool = True
+        self.tiingo_threshold_level: int = 6
         self._load()
 
     def _load(self) -> None:
@@ -52,6 +53,9 @@ class ConfigManager:
                     self.history_provider = data.get("history_provider", "yahoo")
                     self.weekend_provider = data.get("weekend_provider", "yahoo")
                     self.use_rate_limit = bool(data.get("use_rate_limit", True))
+                    self.tiingo_threshold_level = int(
+                        data.get("tiingo_threshold_level", 6)
+                    )
             except Exception:
                 pass
         else:
@@ -67,6 +71,7 @@ class ConfigManager:
                 "history_provider": self.history_provider,
                 "weekend_provider": self.weekend_provider,
                 "use_rate_limit": self.use_rate_limit,
+                "tiingo_threshold_level": self.tiingo_threshold_level,
                 "watchlist": self.watchlist,
             }
             with open(self.file, "w") as f:
