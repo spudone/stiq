@@ -18,6 +18,4 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from .provider import DataProvider
 
-__all__ = [
-    "DataProvider"
-]
+__all__ = ["DataProvider"]

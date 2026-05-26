@@ -26,6 +26,7 @@ from .provider import DataProvider
 from .builder import builder
 from .async_tiingo import AsyncTiingoClient
 
+
 class TiingoWebSocketProvider(DataProvider):
     """DataProvider implementation using Tiingo IEX + FX API."""
 
@@ -34,10 +35,9 @@ class TiingoWebSocketProvider(DataProvider):
         if not self._api_key:
             print("[tiingo-ws] WARNING: TIINGO_API_KEY not set", file=sys.stderr)
 
-        self.client = AsyncTiingoClient(config={
-            "api_key": self._api_key,
-            "on_quote": self._handle_tiingo_quote
-        })
+        self.client = AsyncTiingoClient(
+            config={"api_key": self._api_key, "on_quote": self._handle_tiingo_quote}
+        )
 
         self._iex_cache: dict[str, dict[str, Any]] = {}
         self._quotes_cache: dict[str, dict] = {}
@@ -56,12 +56,13 @@ class TiingoWebSocketProvider(DataProvider):
             open=quote_data["open"],
             high=quote_data["high"],
             low=quote_data["low"],
-            volume=quote_data["volume"]
+            volume=quote_data["volume"],
         )
         self._iex_cache[ticker] = normalized
         self._quotes_cache[ticker] = normalized
 
         from .events import event_bus
+
         publish_data = dict(normalized)
         publish_data["quote"] = ticker
         event_bus.publish("quote", publish_data)
@@ -80,6 +81,7 @@ class TiingoWebSocketProvider(DataProvider):
         tickers: set[str] = set()
         try:
             from .config import config
+
             for sym in config.watchlist:
                 tickers.add(sym.upper())
         except Exception:
@@ -89,7 +91,7 @@ class TiingoWebSocketProvider(DataProvider):
     async def _seed_initial_data(self) -> None:
         """Seed initial values using the REST API for closed market or immediate display."""
         cache_file = os.path.expanduser("~/.stiq/tiingo_cache.json")
-        
+
         if builder.is_market_open():
             if os.path.exists(cache_file):
                 try:
@@ -97,7 +99,7 @@ class TiingoWebSocketProvider(DataProvider):
                 except Exception:
                     pass
             return
-            
+
         try:
             if os.path.exists(cache_file):
                 with open(cache_file, "r") as f:
@@ -119,7 +121,7 @@ class TiingoWebSocketProvider(DataProvider):
                     high = float(r.get("high") or 0.0)
                     low = float(r.get("low") or 0.0)
                     volume = float(r.get("volume") or 0.0)
-                    
+
                     normalized = builder.build_realtime_quote(
                         sym=ticker,
                         price=price,
@@ -127,17 +129,15 @@ class TiingoWebSocketProvider(DataProvider):
                         open=open_price,
                         high=high,
                         low=low,
-                        volume=volume
+                        volume=volume,
                     )
                     if ticker not in self._iex_cache:
                         self._iex_cache[ticker] = normalized
-                        
+
             try:
                 os.makedirs(os.path.dirname(cache_file), exist_ok=True)
                 with open(cache_file, "w") as f:
-                    json.dump({
-                        "iex": self._iex_cache
-                    }, f, indent=4)
+                    json.dump({"iex": self._iex_cache}, f, indent=4)
             except Exception as e:
                 print(f"[tiingo-ws] Error saving cache: {e}", file=sys.stderr)
         except Exception as e:
@@ -152,13 +152,17 @@ class TiingoWebSocketProvider(DataProvider):
             return {}
 
         await self._ensure_started()
-        
+
         # Determine the full desired list (watchlist + adhoc symbols)
         desired_set = set(t.upper() for t in self._get_iex_tickers() + symbols)
         await self.client.subscribe_iex(list(desired_set))
 
         # Gracefully handle missing cache (e.g., weekends, holidays, newly added symbols)
-        missing = [s.upper() for s in symbols if s.upper() not in self._quotes_cache and s.upper() not in self._iex_cache]
+        missing = [
+            s.upper()
+            for s in symbols
+            if s.upper() not in self._quotes_cache and s.upper() not in self._iex_cache
+        ]
         if missing:
             try:
                 data_iex = await self.client.get_iex_quotes(missing)
@@ -171,12 +175,16 @@ class TiingoWebSocketProvider(DataProvider):
                         open=float(r.get("open") or 0.0),
                         high=float(r.get("high") or 0.0),
                         low=float(r.get("low") or 0.0),
-                        volume=float(r.get("volume") or 0.0)
+                        volume=float(r.get("volume") or 0.0),
                     )
                     self._iex_cache[ticker] = normalized
             except Exception as e:
                 import sys
-                print(f"[tiingo-ws] Error fetching missing quotes via REST: {e}", file=sys.stderr)
+
+                print(
+                    f"[tiingo-ws] Error fetching missing quotes via REST: {e}",
+                    file=sys.stderr,
+                )
 
         results = {}
         for sym in symbols:
@@ -196,7 +204,7 @@ class TiingoWebSocketProvider(DataProvider):
         """Background task to fetch history and update the history cache."""
         try:
             history_data = await self.client.get_history(ticker)
-            
+
             if history_data:
                 quote = builder.build_history_quote(
                     sym=ticker,
@@ -220,20 +228,24 @@ class TiingoWebSocketProvider(DataProvider):
             return {}
 
         await self._ensure_started()
-        
+
         results = {}
         from datetime import date
+
         today_str = date.today().isoformat()
 
         for sym in symbols:
             sym_upper = sym.upper()
-            
+
             history_data = self.client.get_cached_history(sym_upper) or {}
-            
-            if history_data.get("last_updated") != today_str and sym_upper not in self._history_requested:
+
+            if (
+                history_data.get("last_updated") != today_str
+                and sym_upper not in self._history_requested
+            ):
                 self._history_requested.add(sym_upper)
                 asyncio.create_task(self._update_history_cache(sym_upper))
-                
+
             if sym_upper in self._history_cache:
                 results[sym_upper] = self._history_cache[sym_upper]
             else:

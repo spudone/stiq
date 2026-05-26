@@ -16,7 +16,6 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-
 import asyncio
 import json
 import mimetypes
@@ -51,14 +50,16 @@ def get_content_type(file_path):
 
 async def send_response(writer, status_code, content_type, body_bytes):
     """Send an HTTP response with CORS headers."""
-    status_msg = "OK" if status_code == 200 else ("Created" if status_code == 201 else "Error")
+    status_msg = (
+        "OK" if status_code == 200 else ("Created" if status_code == 201 else "Error")
+    )
     headers = [
         f"HTTP/1.1 {status_code} {status_msg}",
         f"Content-Type: {content_type}",
         f"Content-Length: {len(body_bytes)}",
         "Access-Control-Allow-Origin: *",
         "Connection: close",
-        "\r\n"
+        "\r\n",
     ]
     try:
         writer.write(("\r\n".join(headers)).encode("utf-8") + body_bytes)
@@ -81,7 +82,7 @@ async def send_error(writer, status_code, message):
         "Content-Type: text/plain",
         f"Content-Length: {len(body)}",
         "Connection: close",
-        "\r\n"
+        "\r\n",
     ]
     try:
         writer.write(("\r\n".join(headers)).encode("utf-8") + body)
@@ -105,14 +106,14 @@ async def handle_get(path, qs, writer):
             "Cache-Control: no-cache",
             "Connection: keep-alive",
             "Access-Control-Allow-Origin: *",
-            "\r\n"
+            "\r\n",
         ]
         try:
             writer.write(("\r\n".join(headers)).encode("utf-8"))
             await writer.drain()
         except Exception:
             return
-            
+
         queue = asyncio.Queue()
         event_bus.subscribe(queue)
         try:
@@ -125,28 +126,28 @@ async def handle_get(path, qs, writer):
             pass
         finally:
             event_bus.unsubscribe(queue)
-            
+
     elif path == "/api/market":
         data = await provider.fetch_market()
         await send_json(writer, data)
     elif path == "/api/quotes":
         symbols = qs.get("symbols", [""])[0]
         symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-        
+
         realtime_data = await provider.fetch_quotes(symbol_list)
         history_data = await provider.fetch_history(symbol_list)
-        
+
         data = []
         for sym in symbol_list:
             sym_upper = sym.upper()
             rt = realtime_data.get(sym_upper, {})
             hi = history_data.get(sym_upper, {})
-            
+
             merged = {**hi, **rt}
             if not merged.get("quote"):
                 merged["quote"] = sym_upper
             data.append(merged)
-            
+
         await send_json(writer, data)
     elif path == "/api/history":
         symbols = qs.get("symbols", [""])[0]
@@ -157,11 +158,11 @@ async def handle_get(path, qs, writer):
         await send_json(
             writer,
             {
-                "symbols": config.watchlist, 
+                "symbols": config.watchlist,
                 "poll_interval_secs": config.poll_interval_secs,
                 "provider": config.quotes_provider,
-                "market_provider": config.market_provider
-            }
+                "market_provider": config.market_provider,
+            },
         )
     elif path == "/api/shutdown":
         await send_response(writer, 200, "text/plain", b"Shutting down")
@@ -333,8 +334,10 @@ async def background_poller():
                             event_bus.publish("quotes", q_list)
         except Exception as e:
             print(f"[stiq] Poller error: {e}", file=sys.stderr)
-        
-        sleep_secs = 300 if config.quotes_provider == "tiingo" else config.poll_interval_secs
+
+        sleep_secs = (
+            300 if config.quotes_provider == "tiingo" else config.poll_interval_secs
+        )
         await asyncio.sleep(sleep_secs)
 
 

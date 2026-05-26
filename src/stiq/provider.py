@@ -55,7 +55,10 @@ class DataProvider(ABC):
 
 class MultiplexProvider(DataProvider):
     """Routes different data fetch requests to independently configured providers."""
-    def __init__(self, market: DataProvider, quotes: DataProvider, history: DataProvider):
+
+    def __init__(
+        self, market: DataProvider, quotes: DataProvider, history: DataProvider
+    ):
         self.market = market
         self.quotes = quotes
         self.history = history
@@ -72,17 +75,21 @@ class MultiplexProvider(DataProvider):
 
 _provider_instances: dict[str, DataProvider] = {}
 
+
 def _get_single_provider(name: str) -> DataProvider:
     name = name.lower()
     if name not in _provider_instances:
         if name == "yfinance":
             from .yfinance_provider import YFinanceProvider
+
             _provider_instances[name] = YFinanceProvider()
         elif name == "tiingo":
             from .tiingo_provider import TiingoWebSocketProvider
+
             _provider_instances[name] = TiingoWebSocketProvider()
         else:
             from .yahoo_provider import YahooProvider
+
             _provider_instances[name] = YahooProvider()
     return _provider_instances[name]
 
@@ -91,7 +98,7 @@ def get_provider() -> DataProvider:
     """Factory to return the configured provider."""
     from .config import config
     from .builder import builder
-    
+
     market_prov = config.market_provider
     quotes_prov = config.quotes_provider
     history_prov = config.history_provider
@@ -112,5 +119,5 @@ def get_provider() -> DataProvider:
     return MultiplexProvider(
         _get_single_provider(market_prov),
         _get_single_provider(quotes_prov),
-        _get_single_provider(history_prov)
+        _get_single_provider(history_prov),
     )

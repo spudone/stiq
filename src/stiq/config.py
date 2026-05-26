@@ -39,7 +39,14 @@ class ConfigManager:
                 with open(self.file, "r") as f:
                     data = json.load(f)
                     self.watchlist = [s.upper() for s in data.get("watchlist", [])]
-                    self.poll_interval_secs = max(60, int(data.get("poll_interval_secs", data.get("poll_interval", 300))))
+                    self.poll_interval_secs = max(
+                        60,
+                        int(
+                            data.get(
+                                "poll_interval_secs", data.get("poll_interval", 300)
+                            )
+                        ),
+                    )
                     self.market_provider = data.get("market_provider", "yahoo")
                     self.quotes_provider = data.get("quotes_provider", "yahoo")
                     self.history_provider = data.get("history_provider", "yahoo")
@@ -60,7 +67,7 @@ class ConfigManager:
                 "history_provider": self.history_provider,
                 "weekend_provider": self.weekend_provider,
                 "use_rate_limit": self.use_rate_limit,
-                "watchlist": self.watchlist
+                "watchlist": self.watchlist,
             }
             with open(self.file, "w") as f:
                 json.dump(data, f, indent=4)

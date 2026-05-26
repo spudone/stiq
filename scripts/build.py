@@ -85,13 +85,15 @@ def build():
     hook_file = "stiq_runtime_hook.py"
     with open(hook_file, "w") as f:
         f.write(f"import os\nos.environ['STIQ_PROVIDER'] = '{provider_type}'\n")
-    
+
     cmd.extend(["--runtime-hook", hook_file])
 
     if provider_type == "yfinance":
         cmd.extend(["--hidden-import", "stiq.yfinance_provider"])
     elif provider_type == "tiingo":
-        cmd.extend(["--hidden-import", "stiq.tiingo_provider", "--hidden-import", "websockets"])
+        cmd.extend(
+            ["--hidden-import", "stiq.tiingo_provider", "--hidden-import", "websockets"]
+        )
     else:
         cmd.extend(["--hidden-import", "stiq.yahoo_provider"])
 

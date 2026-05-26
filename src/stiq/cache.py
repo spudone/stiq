@@ -35,10 +35,14 @@ class CacheManager:
                     content = json.load(f)
                     if not content:
                         return
-                        
+
                     # Detect old structure which was flat {"AAPL": {"date": ..., "history": [...]}}
                     first_val = list(content.values())[0]
-                    if isinstance(first_val, dict) and "history" in first_val and "date" in first_val:
+                    if (
+                        isinstance(first_val, dict)
+                        and "history" in first_val
+                        and "date" in first_val
+                    ):
                         # Migrate old cache to "yahoo" namespace
                         self.data = {"yahoo": content}
                     else:

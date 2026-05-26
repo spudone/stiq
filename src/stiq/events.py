@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import asyncio
 from typing import Any
 
+
 class EventBus:
     def __init__(self):
         self.subscribers: set[asyncio.Queue] = set()
@@ -37,5 +38,6 @@ class EventBus:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
                 pass
+
 
 event_bus = EventBus()

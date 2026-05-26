@@ -28,18 +28,18 @@ class QuoteBuilder:
     def is_market_open(self) -> bool:
         et = pytz.timezone("US/Eastern")
         now_et = datetime.now(et)
-        
+
         # Check weekends
         if now_et.weekday() >= 5:
             return False
-            
+
         # Check official NYSE holidays
         if now_et.date() in self._nyse_holidays:
             return False
-            
-        # Standard hours: 9:30 AM to 4:00 PM EST 
+
+        # Standard hours: 9:30 AM to 4:00 PM EST
         # (Using 9 <= hour < 16 acts as 9:00 AM - 4:00 PM, which is a good baseline)
-        return (9 <= now_et.hour < 16)
+        return 9 <= now_et.hour < 16
 
     def build_realtime_quote(
         self,
@@ -54,7 +54,9 @@ class QuoteBuilder:
     ) -> dict[str, any]:
         change = price - prev_close if prev_close else 0.0
         if change_pct is None:
-            change_pct = ((change / prev_close) * 100) if prev_close and prev_close != 0 else 0.0
+            change_pct = (
+                ((change / prev_close) * 100) if prev_close and prev_close != 0 else 0.0
+            )
 
         return {
             "quote": sym.upper(),
@@ -93,14 +95,14 @@ class QuoteBuilder:
             "history": history or [],
         }
 
-    def build_market_index(self, name: str, price: float, change_pct: float) -> dict[str, any]:
+    def build_market_index(
+        self, name: str, price: float, change_pct: float
+    ) -> dict[str, any]:
         return {
             "name": name,
             "value": price,
             "change": change_pct,
         }
-
-
 
 
 builder = QuoteBuilder()
