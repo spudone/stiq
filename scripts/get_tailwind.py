@@ -22,7 +22,7 @@ import platform
 import urllib.request
 import stat
 
-TAILWIND_VERSION = "v4.0.0"  # Target version
+TAILWIND_VERSION = "v4.3.0"  # Target version
 
 
 def get_tailwind():
@@ -48,7 +48,7 @@ def get_tailwind():
         sys.exit(1)
 
     binary_name = binary_map[key]
-    url = f"https://github.com/tailwindlabs/tailwindcss/releases/latest/download/{binary_name}"
+    url = f"https://github.com/tailwindlabs/tailwindcss/releases/download/{TAILWIND_VERSION}/{binary_name}"
 
     target_name = "tailwindcss.exe" if system == "windows" else "tailwindcss"
 
@@ -60,7 +60,20 @@ def get_tailwind():
     print(f"URL: {url}")
 
     try:
-        urllib.request.urlretrieve(url, target_name)
+        try:
+            urllib.request.urlretrieve(url, target_name)
+        except Exception as e:
+            if "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e):
+                print("SSL certificate verification failed. Retrying with unverified context...")
+                import ssl
+                import shutil
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
+                with urllib.request.urlopen(url, context=ctx) as response, open(target_name, 'wb') as out_file:
+                    shutil.copyfileobj(response, out_file)
+            else:
+                raise e
 
         # Make executable on non-Windows
         if system != "windows":
