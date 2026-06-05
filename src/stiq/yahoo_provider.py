@@ -184,29 +184,70 @@ class YahooProvider(DataProvider):
             if all_cached:
                 return results
 
-        raw_quotes = await self._fetch_raw_quotes(symbols)
+        from datetime import date
+
+        today_str = date.today().isoformat()
+        results = {}
+        symbols_to_fetch = []
+
+        # 1. Check cache first
+        for sym in symbols:
+            sym_upper = sym.upper()
+            cached = cache.get_history(sym_upper)
+
+            # Cache hit: it has today's date AND Yahoo metrics (we check 'currency' which Yahoo always sets)
+            if cached is not None and cached.get("last_updated") == today_str and cached.get("currency") is not None:
+                row = builder.build_history_quote(
+                    sym=sym_upper,
+                    low_52w=cached.get("low_52w"),
+                    high_52w=cached.get("high_52w"),
+                    avg_volume=cached.get("avg_volume"),
+                    pe_ratio=cached.get("pe_ratio"),
+                    dividend_rate=cached.get("dividend_rate"),
+                    dividend_yield=cached.get("dividend_yield"),
+                    market_cap=cached.get("market_cap"),
+                    currency=cached.get("currency", "USD"),
+                    history=cached.get("history", []),
+                )
+                results[sym_upper] = row
+                self._history_cache[sym_upper] = row
+            else:
+                symbols_to_fetch.append(sym)
+
+        if not symbols_to_fetch:
+            return results
+
+        # 2. Fetch for missing symbols
+        raw_quotes = await self._fetch_raw_quotes(symbols_to_fetch)
         quotes_map = {
             r.get("symbol", "").upper(): r for r in raw_quotes if r.get("symbol")
         }
-        results = {}
 
-        for sym in symbols:
+        for sym in symbols_to_fetch:
             sym_upper = sym.upper()
             try:
                 r = quotes_map.get(sym_upper, {})
 
-                from datetime import date
-
-                today_str = date.today().isoformat()
-
-                cached = cache.get_history("yahoo", sym_upper)
-                if cached is not None and cached.get("date") == today_str:
+                cached = cache.get_history(sym_upper)
+                if cached is not None and cached.get("last_updated") == today_str:
                     history_arr = cached.get("history", [])
                 else:
                     history_arr = await self._fetch_history_chart(sym_upper)
-                    cache.set_history(
-                        "yahoo", sym_upper, {"date": today_str, "history": history_arr}
-                    )
+
+                cache_update = {
+                    "history": history_arr,
+                    "last_updated": today_str,
+                    "raw_prices": [],
+                    "low_52w": r.get("fiftyTwoWeekLow"),
+                    "high_52w": r.get("fiftyTwoWeekHigh"),
+                    "avg_volume": r.get("averageDailyVolume10Day"),
+                    "pe_ratio": r.get("trailingPE"),
+                    "dividend_rate": r.get("trailingAnnualDividendRate"),
+                    "dividend_yield": r.get("trailingAnnualDividendYield"),
+                    "market_cap": r.get("marketCap"),
+                    "currency": r.get("currency", "USD"),
+                }
+                cache.set_history(sym_upper, cache_update)
 
                 row = builder.build_history_quote(
                     sym=sym_upper,
@@ -228,7 +269,25 @@ class YahooProvider(DataProvider):
                     f"[stiq] History error for {sym_upper} (custom): {e}",
                     file=sys.stderr,
                 )
-                if not builder.is_market_open():
+                
+                # 3. Fallback to stale cache if API failed
+                cached = cache.get_history(sym_upper)
+                if cached is not None:
+                    row = builder.build_history_quote(
+                        sym=sym_upper,
+                        low_52w=cached.get("low_52w"),
+                        high_52w=cached.get("high_52w"),
+                        avg_volume=cached.get("avg_volume"),
+                        pe_ratio=cached.get("pe_ratio"),
+                        dividend_rate=cached.get("dividend_rate"),
+                        dividend_yield=cached.get("dividend_yield"),
+                        market_cap=cached.get("market_cap"),
+                        currency=cached.get("currency", "USD"),
+                        history=cached.get("history", []),
+                    )
+                    results[sym_upper] = row
+                    self._history_cache[sym_upper] = row
+                elif not builder.is_market_open():
                     row = builder.build_history_quote(sym_upper)
                     self._history_cache[sym_upper] = row
                     results[sym_upper] = row
