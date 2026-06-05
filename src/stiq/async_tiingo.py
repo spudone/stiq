@@ -30,9 +30,12 @@ from .cache import cache
 from .tiingo_usage import tiingo_usage_tracker
 from .config import config
 
+
 class TiingoAPIError(Exception):
     """Raised when an API fetch fails."""
+
     pass
+
 
 # IEX data array field positions (thresholdLevel 5)
 _IEX_TICKER = 1
@@ -78,7 +81,7 @@ class AsyncTiingoClient:
     async def close(self) -> None:
         """Gracefully shutdown the client, draining tasks and closing the session."""
         self._stop_event.set()
-        
+
         pending = list(self._background_tasks)
         self._background_tasks.clear()
         for t in pending:
@@ -86,7 +89,7 @@ class AsyncTiingoClient:
                 await t
             except asyncio.CancelledError:
                 pass
-                
+
         if self._session:
             await self._session.close()
             self._session = None
@@ -121,7 +124,9 @@ class AsyncTiingoClient:
                     continue
 
                 response.raise_for_status()
-                req_bytes = len(url) + sum(len(k) + len(v) for k, v in response.request_info.headers.items())
+                req_bytes = len(url) + sum(
+                    len(k) + len(v) for k, v in response.request_info.headers.items()
+                )
                 body_bytes = await response.read()
                 await tiingo_usage_tracker.track_request(req_bytes, len(body_bytes))
                 return json.loads(body_bytes)
@@ -170,7 +175,10 @@ class AsyncTiingoClient:
                         try:
                             self._on_iex_message(message)
                         except Exception as e:
-                            print(f"[tiingo-ws] Message handler error: {e}", file=sys.stderr)
+                            print(
+                                f"[tiingo-ws] Message handler error: {e}",
+                                file=sys.stderr,
+                            )
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -192,9 +200,12 @@ class AsyncTiingoClient:
 
     async def connect_iex(self) -> None:
         """Connect to IEX websocket with auto-reconnect and exponential backoff."""
-        if getattr(self, '_iex_connect_task', None) and not self._iex_connect_task.done():
+        if (
+            getattr(self, "_iex_connect_task", None)
+            and not self._iex_connect_task.done()
+        ):
             self._iex_connect_task.cancel()
-            
+
         self._iex_connect_task = asyncio.create_task(self._connect_iex_loop())
 
     async def _send_subscribe(self, tickers: list[str]) -> None:
@@ -260,15 +271,16 @@ class AsyncTiingoClient:
         try:
             self._background_tasks.discard(task)
             if task.exception():
-                asyncio.get_running_loop().call_exception_handler({
-                    'message': 'Tiingo background task failed',
-                    'exception': task.exception()
-                })
+                asyncio.get_running_loop().call_exception_handler(
+                    {
+                        "message": "Tiingo background task failed",
+                        "exception": task.exception(),
+                    }
+                )
         except Exception as e:
-            asyncio.get_running_loop().call_exception_handler({
-                'message': 'Tiingo background task callback failed',
-                'exception': e
-            })
+            asyncio.get_running_loop().call_exception_handler(
+                {"message": "Tiingo background task callback failed", "exception": e}
+            )
 
     def _on_iex_message(self, raw_msg: str | bytes) -> None:
         try:
@@ -277,7 +289,7 @@ class AsyncTiingoClient:
                 msg_len = len(raw_msg)
             else:
                 msg_len = len(raw_msg.encode("utf-8"))
-            
+
             task = asyncio.create_task(tiingo_usage_tracker.track_ws_bytes(msg_len))
             self._background_tasks.add(task)
             task.add_done_callback(self._task_done)
@@ -440,15 +452,22 @@ class AsyncTiingoClient:
                         is_full_history = False
                         if len(data_prices) > 0:
                             first_date_str = data_prices[0]["date"].split("T")[0]
-                            first_date = datetime.strptime(first_date_str, "%Y-%m-%d").date()
-                            if first_date <= (datetime.now().date() - timedelta(days=360)):
+                            first_date = datetime.strptime(
+                                first_date_str, "%Y-%m-%d"
+                            ).date()
+                            if first_date <= (
+                                datetime.now().date() - timedelta(days=360)
+                            ):
                                 is_full_history = True
 
-                        has_cached_metrics = "high_52w" in history_data and "low_52w" in history_data
+                        has_cached_metrics = (
+                            "high_52w" in history_data and "low_52w" in history_data
+                        )
 
                         if is_full_history or not has_cached_metrics:
                             high_52w = max(
-                                (item.get("high", 0) for item in data_prices), default=None
+                                (item.get("high", 0) for item in data_prices),
+                                default=None,
                             )
                             low_52w = min(
                                 (item.get("low", float("inf")) for item in data_prices),
@@ -457,10 +476,14 @@ class AsyncTiingoClient:
                             if low_52w == float("inf"):
                                 low_52w = None
 
-                            div_rate = sum(item.get("divCash", 0) for item in data_prices)
+                            div_rate = sum(
+                                item.get("divCash", 0) for item in data_prices
+                            )
 
                             vol_days = (
-                                data_prices[-10:] if len(data_prices) >= 10 else data_prices
+                                data_prices[-10:]
+                                if len(data_prices) >= 10
+                                else data_prices
                             )
                             avg_vol = (
                                 sum(item.get("volume", 0) for item in vol_days)
@@ -470,15 +493,24 @@ class AsyncTiingoClient:
                             )
 
                             history_days = (
-                                data_prices[-30:] if len(data_prices) >= 30 else data_prices
+                                data_prices[-30:]
+                                if len(data_prices) >= 30
+                                else data_prices
                             )
                             history = [item.get("close", 0) for item in history_days]
                         else:
-                            new_high = max((item.get("high", 0) for item in data), default=0)
+                            new_high = max(
+                                (item.get("high", 0) for item in data), default=0
+                            )
                             cached_high = history_data.get("high_52w") or 0
-                            high_52w = max(cached_high, new_high) if cached_high else new_high
+                            high_52w = (
+                                max(cached_high, new_high) if cached_high else new_high
+                            )
 
-                            new_low = min((item.get("low", float("inf")) for item in data), default=float("inf"))
+                            new_low = min(
+                                (item.get("low", float("inf")) for item in data),
+                                default=float("inf"),
+                            )
                             cached_low = history_data.get("low_52w")
                             if cached_low is None:
                                 cached_low = float("inf")
@@ -494,9 +526,15 @@ class AsyncTiingoClient:
                             cached_vol = history_data.get("avg_volume") or 0
                             if N >= 10:
                                 vol_days = data[-10:]
-                                avg_vol = sum(item.get("volume", 0) for item in vol_days) / 10.0
+                                avg_vol = (
+                                    sum(item.get("volume", 0) for item in vol_days)
+                                    / 10.0
+                                )
                             elif N > 0 and cached_vol:
-                                avg_vol = ((10 - N) * cached_vol + sum(item.get("volume", 0) for item in data)) / 10.0
+                                avg_vol = (
+                                    (10 - N) * cached_vol
+                                    + sum(item.get("volume", 0) for item in data)
+                                ) / 10.0
                             else:
                                 avg_vol = cached_vol
 

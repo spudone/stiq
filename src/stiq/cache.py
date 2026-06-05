@@ -22,18 +22,15 @@ import json
 
 # Unified schema shared by all providers
 UNIFIED_HISTORY_FIELDS = {
-    "history": [],              # Array of closing prices (all providers)
-    "last_updated": "",         # ISO date string (ALL PROVIDERS NOW WRITE THIS!)
-
+    "history": [],  # Array of closing prices (all providers)
+    "last_updated": "",  # ISO date string (ALL PROVIDERS NOW WRITE THIS!)
     # Yahoo-specific fields
     "low_52w": None,
     "high_52w": None,
     "avg_volume": None,
     "market_cap": None,
-
     # Tiingo-specific fields
-    "raw_prices": [],           # Detailed daily OHLCV data (Tiingo only)
-
+    "raw_prices": [],  # Detailed daily OHLCV data (Tiingo only)
     # Other metrics
     "pe_ratio": None,
     "dividend_rate": None,

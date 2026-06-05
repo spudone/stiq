@@ -58,23 +58,27 @@ class TiingoWebSocketProvider(DataProvider):
                 await t
             except asyncio.CancelledError:
                 pass
-        
-        if hasattr(self, 'client') and self.client:
+
+        if hasattr(self, "client") and self.client:
             await self.client.close()
 
     def _task_done(self, task: asyncio.Task) -> None:
         try:
             self._background_tasks.discard(task)
             if task.exception():
-                asyncio.get_running_loop().call_exception_handler({
-                    'message': 'Tiingo provider background task failed',
-                    'exception': task.exception()
-                })
+                asyncio.get_running_loop().call_exception_handler(
+                    {
+                        "message": "Tiingo provider background task failed",
+                        "exception": task.exception(),
+                    }
+                )
         except Exception as e:
-            asyncio.get_running_loop().call_exception_handler({
-                'message': 'Tiingo provider background task callback failed',
-                'exception': e
-            })
+            asyncio.get_running_loop().call_exception_handler(
+                {
+                    "message": "Tiingo provider background task callback failed",
+                    "exception": e,
+                }
+            )
 
     def _handle_tiingo_quote(self, quote_data: dict[str, Any]) -> None:
         """Callback from AsyncTiingoClient when a valid realtime quote arrives."""
@@ -268,7 +272,9 @@ class TiingoWebSocketProvider(DataProvider):
                 self._history_requested.remove(ticker)
         except Exception as e:
             # On failure, leave ticker in _history_requested so it can be retried
-            print(f"[tiingo-ws] History fetch failed for {ticker}: {e}", file=sys.stderr)
+            print(
+                f"[tiingo-ws] History fetch failed for {ticker}: {e}", file=sys.stderr
+            )
 
     async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         if not symbols:

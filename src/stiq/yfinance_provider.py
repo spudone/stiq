@@ -158,6 +158,7 @@ class YFinanceProvider(DataProvider):
     def _fetch_history_sync(self, symbols: list[str]) -> dict[str, dict[str, any]]:
         results = {}
         from datetime import date as _date
+
         today_str = _date.today().isoformat()
         symbols_to_fetch = []
 
@@ -165,9 +166,13 @@ class YFinanceProvider(DataProvider):
         for sym in symbols:
             sym_upper = sym.upper()
             cached = cache.get_history(sym_upper)
-            
+
             # Cache hit: it has today's date AND Yahoo metrics (check 'currency')
-            if cached is not None and cached.get("last_updated") == today_str and cached.get("currency") is not None:
+            if (
+                cached is not None
+                and cached.get("last_updated") == today_str
+                and cached.get("currency") is not None
+            ):
                 row = builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=cached.get("low_52w"),
@@ -214,24 +219,25 @@ class YFinanceProvider(DataProvider):
                             and "Close" in hist.columns
                         ):
                             h = [round(float(c), 2) for c in hist["Close"].tolist()]
-                    
+
                     cache_update = {
                         "history": h,
                         "last_updated": today_str,
                         "raw_prices": [],
                         "low_52w": info.get("fiftyTwoWeekLow")
-                                   or t_info.get("fiftyTwoWeekLow"),
+                        or t_info.get("fiftyTwoWeekLow"),
                         "high_52w": info.get("fiftyTwoWeekHigh")
-                                    or t_info.get("fiftyTwoWeekHigh"),
+                        or t_info.get("fiftyTwoWeekHigh"),
                         "avg_volume": info.get("averageVolume10Day")
-                                     or t_info.get("averageDailyVolume10Day"),
+                        or t_info.get("averageDailyVolume10Day"),
                         "pe_ratio": t_info.get("trailingPE"),
                         "dividend_rate": t_info.get("dividendRate")
-                                         or t_info.get("trailingAnnualDividendRate"),
+                        or t_info.get("trailingAnnualDividendRate"),
                         "dividend_yield": t_info.get("dividendYield")
-                                          or t_info.get("trailingAnnualDividendYield"),
+                        or t_info.get("trailingAnnualDividendYield"),
                         "market_cap": info.get("marketCap") or t_info.get("marketCap"),
-                        "currency": info.get("currency") or t_info.get("currency", "USD"),
+                        "currency": info.get("currency")
+                        or t_info.get("currency", "USD"),
                     }
                     cache.set_history(sym_upper, cache_update)
 
@@ -255,7 +261,7 @@ class YFinanceProvider(DataProvider):
                         f"[stiq] History error for {sym_upper} (yfinance): {e}",
                         file=sys.stderr,
                     )
-                    
+
                     # Fallback to stale cache
                     cached = cache.get_history(sym_upper)
                     if cached is not None:

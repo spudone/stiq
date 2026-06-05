@@ -164,10 +164,9 @@ async def handle_get(path, qs, writer):
             {
                 "symbols": config.watchlist,
                 "poll_interval_secs": config.poll_interval_secs,
-                "provider": config.quotes_provider,
+                "quotes_provider": config.quotes_provider,
                 "market_provider": config.market_provider,
                 "history_provider": config.history_provider,
-                "weekend_provider": config.weekend_provider,
             },
         )
     elif path == "/api/tiingo_usage":
