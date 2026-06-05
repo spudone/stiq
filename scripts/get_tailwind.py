@@ -64,13 +64,19 @@ def get_tailwind():
             urllib.request.urlretrieve(url, target_name)
         except Exception as e:
             if "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e):
-                print("SSL certificate verification failed. Retrying with unverified context...")
+                print(
+                    "SSL certificate verification failed. Retrying with unverified context..."
+                )
                 import ssl
                 import shutil
+
                 ctx = ssl.create_default_context()
                 ctx.check_hostname = False
                 ctx.verify_mode = ssl.CERT_NONE
-                with urllib.request.urlopen(url, context=ctx) as response, open(target_name, 'wb') as out_file:
+                with (
+                    urllib.request.urlopen(url, context=ctx) as response,
+                    open(target_name, "wb") as out_file,
+                ):
                     shutil.copyfileobj(response, out_file)
             else:
                 raise e

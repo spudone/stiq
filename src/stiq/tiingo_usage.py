@@ -90,7 +90,7 @@ class TiingoUsageTracker:
             self._check_resets()
             self.hourly_requests += 1
             self.daily_requests += 1
-            self.monthly_bandwidth_bytes += (req_bytes + resp_bytes)
+            self.monthly_bandwidth_bytes += req_bytes + resp_bytes
             self._save_to_disk()
 
     async def track_ws_bytes(self, size_bytes: int):
@@ -104,7 +104,7 @@ class TiingoUsageTracker:
         return {
             "hourly_requests": self.hourly_requests,
             "daily_requests": self.daily_requests,
-            "monthly_bandwidth_mb": mb
+            "monthly_bandwidth_mb": mb,
         }
 
     def _save_to_disk(self):
@@ -115,7 +115,7 @@ class TiingoUsageTracker:
             "monthly_bandwidth_bytes": self.monthly_bandwidth_bytes,
             "last_reset_hour": self.last_reset_hour,
             "last_reset_day": self.last_reset_day,
-            "last_reset_month": self.last_reset_month
+            "last_reset_month": self.last_reset_month,
         }
         try:
             os.makedirs(_USAGE_DIR, exist_ok=True)
