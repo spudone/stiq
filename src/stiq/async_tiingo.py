@@ -28,6 +28,11 @@ from typing import Any, Callable
 
 from .cache import cache
 from .tiingo_usage import tiingo_usage_tracker
+from .config import config
+
+class TiingoAPIError(Exception):
+    """Raised when an API fetch fails."""
+    pass
 
 # IEX data array field positions (thresholdLevel 5)
 _IEX_TICKER = 1
@@ -65,6 +70,30 @@ class AsyncTiingoClient:
 
         self._request_lock = asyncio.Lock()
         self._last_request_time = 0.0
+        self._background_tasks: set[asyncio.Task] = set()
+        self._session: aiohttp.ClientSession | None = None
+        self._stop_event = asyncio.Event()
+        self._iex_connect_task: asyncio.Task | None = None
+
+    async def close(self) -> None:
+        """Gracefully shutdown the client, draining tasks and closing the session."""
+        self._stop_event.set()
+        
+        pending = list(self._background_tasks)
+        self._background_tasks.clear()
+        for t in pending:
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+                
+        if self._session:
+            await self._session.close()
+            self._session = None
+
+        if self._iex_ws and not getattr(self._iex_ws, "closed", True):
+            await self._iex_ws.close()
+            self._iex_ws = None
 
     def _get_headers(self) -> dict[str, str]:
         return {
@@ -79,14 +108,25 @@ class AsyncTiingoClient:
         if params is None:
             params = {}
 
-        async with aiohttp.ClientSession(headers=self._get_headers()) as session:
-            async with session.get(url, params=params) as response:
+        if not self._session:
+            self._session = aiohttp.ClientSession(headers=self._get_headers())
+
+        max_retries = 3
+        retry_delay = 1.0
+        for attempt in range(max_retries):
+            async with self._session.get(url, params=params) as response:
+                if response.status == 428:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+
                 response.raise_for_status()
-                # Track request usage
                 req_bytes = len(url) + sum(len(k) + len(v) for k, v in response.request_info.headers.items())
                 body_bytes = await response.read()
                 await tiingo_usage_tracker.track_request(req_bytes, len(body_bytes))
                 return json.loads(body_bytes)
+
+        raise TiingoAPIError(f"Request to {url} failed after {max_retries} retries")
 
     async def get_iex_quotes(self, tickers: list[str]) -> list[dict[str, Any]]:
         """Fetch latest IEX quotes for a list of tickers via REST."""
@@ -112,10 +152,9 @@ class AsyncTiingoClient:
     # IEX WebSocket Management
     # ────────────────────────────────────────────────────────────────
 
-    async def connect_iex(self) -> None:
-        """Connect to IEX websocket with auto-reconnect and exponential backoff."""
+    async def _connect_iex_loop(self) -> None:
         backoff = 1.0
-        while True:
+        while not self._stop_event.is_set():
             try:
                 url = f"wss://api.tiingo.com/iex?token={self.api_key}"
                 print("[tiingo-ws] IEX connecting…", file=sys.stderr)
@@ -128,7 +167,12 @@ class AsyncTiingoClient:
                     if self._current_iex_tickers:
                         await self._send_subscribe(list(self._current_iex_tickers))
                     async for message in ws:
-                        self._on_iex_message(message)
+                        try:
+                            self._on_iex_message(message)
+                        except Exception as e:
+                            print(f"[tiingo-ws] Message handler error: {e}", file=sys.stderr)
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 print(f"[tiingo-ws] IEX connection error: {e}", file=sys.stderr)
             finally:
@@ -146,10 +190,16 @@ class AsyncTiingoClient:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60.0)
 
+    async def connect_iex(self) -> None:
+        """Connect to IEX websocket with auto-reconnect and exponential backoff."""
+        if getattr(self, '_iex_connect_task', None) and not self._iex_connect_task.done():
+            self._iex_connect_task.cancel()
+            
+        self._iex_connect_task = asyncio.create_task(self._connect_iex_loop())
+
     async def _send_subscribe(self, tickers: list[str]) -> None:
         if not self._iex_ws:
             return
-        from .config import config
 
         msg = {
             "eventName": "subscribe",
@@ -206,6 +256,20 @@ class AsyncTiingoClient:
         except Exception as e:
             print(f"[tiingo-ws] IEX subscription update error: {e}", file=sys.stderr)
 
+    def _task_done(self, task: asyncio.Task) -> None:
+        try:
+            self._background_tasks.discard(task)
+            if task.exception():
+                asyncio.get_running_loop().call_exception_handler({
+                    'message': 'Tiingo background task failed',
+                    'exception': task.exception()
+                })
+        except Exception as e:
+            asyncio.get_running_loop().call_exception_handler({
+                'message': 'Tiingo background task callback failed',
+                'exception': e
+            })
+
     def _on_iex_message(self, raw_msg: str | bytes) -> None:
         try:
             # We track ws bandwidth inside an async task since the track_ws_bytes method is async
@@ -213,7 +277,10 @@ class AsyncTiingoClient:
                 msg_len = len(raw_msg)
             else:
                 msg_len = len(raw_msg.encode("utf-8"))
-            asyncio.create_task(tiingo_usage_tracker.track_ws_bytes(msg_len))
+            
+            task = asyncio.create_task(tiingo_usage_tracker.track_ws_bytes(msg_len))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._task_done)
 
             msg = json.loads(raw_msg)
         except json.JSONDecodeError:
@@ -226,9 +293,11 @@ class AsyncTiingoClient:
             if isinstance(data, dict):
                 self._iex_sub_id = data.get("subscriptionId")
                 if self._current_iex_tickers:
-                    asyncio.create_task(
+                    sub_task = asyncio.create_task(
                         self._send_subscribe(list(self._current_iex_tickers))
                     )
+                    self._background_tasks.add(sub_task)
+                    sub_task.add_done_callback(self._task_done)
             return
 
         if msg_type == "H":
@@ -306,26 +375,22 @@ class AsyncTiingoClient:
             if history_data.get("last_updated") == today_str:
                 return history_data
 
-            from .config import config
-
             use_rate_limit = config.use_rate_limit
 
             if use_rate_limit:
-                await self._request_lock.acquire()
-                lock_acquired = True
+                async with self._request_lock:
+                    # Double check
+                    history_data = cache.get_history(ticker) or {}
+                    if history_data.get("last_updated") == today_str:
+                        return history_data
 
-                # Double check
-                history_data = cache.get_history(ticker) or {}
-                if history_data.get("last_updated") == today_str:
-                    return history_data
+                    now = time.time()
+                    time_since_last = now - self._last_request_time
+                    delay = float(os.environ.get("TIINGO_RATE_LIMIT_DELAY", "2.0"))
+                    if time_since_last < delay:
+                        await asyncio.sleep(delay - time_since_last)
 
-                now = time.time()
-                time_since_last = now - self._last_request_time
-                delay = float(os.environ.get("TIINGO_RATE_LIMIT_DELAY", "2.0"))
-                if time_since_last < delay:
-                    await asyncio.sleep(delay - time_since_last)
-
-                self._last_request_time = time.time()
+                    self._last_request_time = time.time()
 
             try:
                 one_year_ago_dt = datetime.now() - timedelta(days=365)
@@ -464,16 +529,9 @@ class AsyncTiingoClient:
                         if "pe_ratio" not in history_data:
                             history_data.setdefault("pe_ratio", None)
             except Exception as e:
-                print(
-                    f"[tiingo-ws] Error fetching historical prices for {ticker}: {e}",
-                    file=sys.stderr,
-                )
-                return history_data
+                raise TiingoAPIError(f"Fetch failed: {e}") from e
 
             history_data["last_updated"] = today_str
             cache.set_history(ticker, history_data)
 
             return history_data
-        finally:
-            if lock_acquired:
-                self._request_lock.release()
