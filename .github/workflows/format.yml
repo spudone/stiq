@@ -1,8 +1,6 @@
 name: Auto-format Python Code
 
 on:
-  push:
-    branches: [ master ]
   pull_request:
     branches: [ master ]
 
