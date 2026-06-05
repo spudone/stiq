@@ -20,12 +20,34 @@ import os
 import json
 
 
+# Unified schema shared by all providers
+UNIFIED_HISTORY_FIELDS = {
+    "history": [],              # Array of closing prices (all providers)
+    "last_updated": "",         # ISO date string (ALL PROVIDERS NOW WRITE THIS!)
+
+    # Yahoo-specific fields
+    "low_52w": None,
+    "high_52w": None,
+    "avg_volume": None,
+    "market_cap": None,
+
+    # Tiingo-specific fields
+    "raw_prices": [],           # Detailed daily OHLCV data (Tiingo only)
+
+    # Other metrics
+    "pe_ratio": None,
+    "dividend_rate": None,
+    "dividend_yield": None,
+    "currency": "USD",
+}
+
+
 class CacheManager:
     def __init__(self) -> None:
         self.dir: str = os.path.expanduser("~/.stiq")
         self.file: str = os.path.join(self.dir, "cache.json")
-        # Structure: {"provider_name": {"SYMBOL": { ...dict_data... }}}
-        self.data: dict[str, dict[str, dict]] = {}
+        # Structure: {"SYMBOL": { ...unified_data... }}
+        self.data: dict[str, dict] = {}
         self._load()
 
     def _load(self) -> None:
@@ -36,17 +58,8 @@ class CacheManager:
                     if not content:
                         return
 
-                    # Detect old structure which was flat {"AAPL": {"date": ..., "history": [...]}}
-                    first_val = list(content.values())[0]
-                    if (
-                        isinstance(first_val, dict)
-                        and "history" in first_val
-                        and "date" in first_val
-                    ):
-                        # Migrate old cache to "yahoo" namespace
-                        self.data = {"yahoo": content}
-                    else:
-                        self.data = content
+                    # Already flat {SYMBOL: {...}} – just ensure defaults are present
+                    self.data = content
             except Exception:
                 pass
 
@@ -58,14 +71,23 @@ class CacheManager:
         except Exception:
             pass
 
-    def get_history(self, provider: str, sym: str) -> dict | None:
-        provider_cache = self.data.get(provider, {})
-        return provider_cache.get(sym.upper())
+    def get_history(self, sym: str) -> dict | None:
+        """Return the unified history data for a symbol (no provider argument)."""
+        return self.data.get(sym.upper())
 
-    def set_history(self, provider: str, sym: str, data: dict) -> None:
-        if provider not in self.data:
-            self.data[provider] = {}
-        self.data[provider][sym.upper()] = data
+    def set_history(self, sym: str, data: dict) -> None:
+        """Store history data with smart merge – prefer non-empty values."""
+        existing = self.data.get(sym.upper(), {})
+
+        merged = {**existing}
+        for key, value in data.items():
+            if isinstance(value, list):
+                # Empty lists don't overwrite; Tiingo's raw_prices survives Yahoo writes
+                merged[key] = value if value else existing.get(key, [])
+            elif value is not None:
+                merged[key] = value
+
+        self.data[sym.upper()] = merged
         self.save()
 
 
