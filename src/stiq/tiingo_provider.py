@@ -25,6 +25,7 @@ from typing import Any
 from .provider import DataProvider
 from .builder import builder
 from .async_tiingo import AsyncTiingoClient
+from .config import config
 
 
 class TiingoWebSocketProvider(DataProvider):
@@ -43,8 +44,37 @@ class TiingoWebSocketProvider(DataProvider):
         self._quotes_cache: dict[str, dict] = {}
         self._history_cache: dict[str, dict] = {}
         self._history_requested: set[str] = set()
+        self._background_tasks: set[asyncio.Task] = set()
 
         self._started = False
+
+    async def close(self) -> None:
+        """Gracefully shutdown provider, draining background tasks then closing client."""
+        pending = list(self._background_tasks)
+        self._background_tasks.clear()
+        for t in pending:
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+        
+        if hasattr(self, 'client') and self.client:
+            await self.client.close()
+
+    def _task_done(self, task: asyncio.Task) -> None:
+        try:
+            self._background_tasks.discard(task)
+            if task.exception():
+                asyncio.get_running_loop().call_exception_handler({
+                    'message': 'Tiingo provider background task failed',
+                    'exception': task.exception()
+                })
+        except Exception as e:
+            asyncio.get_running_loop().call_exception_handler({
+                'message': 'Tiingo provider background task callback failed',
+                'exception': e
+            })
 
     def _handle_tiingo_quote(self, quote_data: dict[str, Any]) -> None:
         """Callback from AsyncTiingoClient when a valid realtime quote arrives."""
@@ -97,8 +127,6 @@ class TiingoWebSocketProvider(DataProvider):
         """Collect all equity tickers we need from the IEX feed."""
         tickers: set[str] = set()
         try:
-            from .config import config
-
             for sym in config.watchlist:
                 tickers.add(sym.upper())
         except Exception:
@@ -160,11 +188,11 @@ class TiingoWebSocketProvider(DataProvider):
         except Exception as e:
             print(f"[tiingo-ws] Error seeding initial data: {e}", file=sys.stderr)
 
-    async def fetch_market(self) -> dict[str, any]:
+    async def fetch_market(self) -> dict[str, Any]:
         # No-op since Tiingo doesn't supply indices
         return {"indices": [], "is_open": builder.is_market_open()}
 
-    async def fetch_quotes(self, symbols: list[str]) -> dict[str, dict[str, any]]:
+    async def fetch_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         if not symbols:
             return {}
 
@@ -236,11 +264,13 @@ class TiingoWebSocketProvider(DataProvider):
                     history=history_data.get("history", []),
                 )
                 self._history_cache[ticker] = quote
-        finally:
             if ticker in self._history_requested:
                 self._history_requested.remove(ticker)
+        except Exception as e:
+            # On failure, leave ticker in _history_requested so it can be retried
+            print(f"[tiingo-ws] History fetch failed for {ticker}: {e}", file=sys.stderr)
 
-    async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, any]]:
+    async def fetch_history(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         if not symbols:
             return {}
 
@@ -261,7 +291,9 @@ class TiingoWebSocketProvider(DataProvider):
                 and sym_upper not in self._history_requested
             ):
                 self._history_requested.add(sym_upper)
-                asyncio.create_task(self._update_history_cache(sym_upper))
+                task = asyncio.create_task(self._update_history_cache(sym_upper))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._task_done)
 
             if sym_upper in self._history_cache:
                 results[sym_upper] = self._history_cache[sym_upper]
