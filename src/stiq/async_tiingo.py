@@ -24,7 +24,7 @@ import sys
 import urllib.parse
 import websockets
 from datetime import datetime, timedelta, date
-from typing import Any, Callable
+from typing import Any
 
 from .cache import cache
 from .tiingo_usage import tiingo_usage_tracker
@@ -363,7 +363,6 @@ class AsyncTiingoClient:
         """
         import time
 
-        lock_acquired = False
         ticker = ticker.upper()
 
         try:
@@ -393,9 +392,6 @@ class AsyncTiingoClient:
                     self._last_request_time = time.time()
 
             try:
-                one_year_ago_dt = datetime.now() - timedelta(days=365)
-                one_year_ago = one_year_ago_dt.strftime("%Y-%m-%d")
-
                 existing_prices = history_data.get("raw_prices", [])
                 startDate = None
                 if history_data.get("last_updated"):
@@ -458,7 +454,8 @@ class AsyncTiingoClient:
                                 (item.get("low", float("inf")) for item in data_prices),
                                 default=None,
                             )
-                            if low_52w == float("inf"): low_52w = None
+                            if low_52w == float("inf"):
+                                low_52w = None
 
                             div_rate = sum(item.get("divCash", 0) for item in data_prices)
 
@@ -486,7 +483,8 @@ class AsyncTiingoClient:
                             if cached_low is None:
                                 cached_low = float("inf")
                             low_52w = min(cached_low, new_low)
-                            if low_52w == float("inf"): low_52w = None
+                            if low_52w == float("inf"):
+                                low_52w = None
 
                             cached_div = history_data.get("dividend_rate") or 0
                             new_divs = sum(item.get("divCash", 0) for item in data)
@@ -535,3 +533,7 @@ class AsyncTiingoClient:
             cache.set_history(ticker, history_data)
 
             return history_data
+        except TiingoAPIError:
+            raise
+        except Exception as e:
+            raise TiingoAPIError(f"Fetch failed: {e}") from e

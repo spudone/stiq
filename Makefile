@@ -1,7 +1,8 @@
-.PHONY: setup build run clean dist-clean dist watch
+.PHONY: setup build lint format run clean dist-clean dist watch
 
 USE_RATE_LIMIT ?= 1
 export USE_RATE_LIMIT
+
 # Helper to detect OS for the binary name (used for build/watch targets)
 TAILWIND_BIN = $(shell python3 -c "import platform; print('tailwindcss.exe' if platform.system() == 'Windows' else 'tailwindcss')")
 
@@ -26,13 +27,23 @@ build: $(TAILWIND_BIN)
 	@echo "Building CSS..."
 	./$(TAILWIND_BIN) -i web/input.css -o web/style.css
 
-# Launch the application (uses config.json or defaults to yahoo)
-run: setup build
+# Run Ruff linter to catch syntax errors and bugs
+lint:
+	@echo "Running linter (Ruff)..."
+	uv run --with ruff ruff check .
+
+# Run Ruff formatter to clean up code style locally
+format:
+	@echo "Formatting code (Ruff)..."
+	uv run --with ruff ruff format .
+
+# Launch the application (Runs lint automatically before booting)
+run: setup build lint
 	@echo "Launching Stiq..."
 	uv run python -m stiq.main
 
 # Create a standalone executable (uses config.json defaults)
-dist: setup build
+dist: setup build lint
 	@echo "Creating standalone executable..."
 	uv run python3 scripts/build.py
 

@@ -196,7 +196,11 @@ class YahooProvider(DataProvider):
             cached = cache.get_history(sym_upper)
 
             # Cache hit: it has today's date AND Yahoo metrics (we check 'currency' which Yahoo always sets)
-            if cached is not None and cached.get("last_updated") == today_str and cached.get("currency") is not None:
+            if (
+                cached is not None
+                and cached.get("last_updated") == today_str
+                and cached.get("currency") is not None
+            ):
                 row = builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=cached.get("low_52w"),
@@ -269,7 +273,7 @@ class YahooProvider(DataProvider):
                     f"[stiq] History error for {sym_upper} (custom): {e}",
                     file=sys.stderr,
                 )
-                
+
                 # 3. Fallback to stale cache if API failed
                 cached = cache.get_history(sym_upper)
                 if cached is not None:
@@ -345,7 +349,7 @@ class YahooProvider(DataProvider):
         }
         try:
             async with self.session.get(url, headers=headers) as resp:
-                html = await resp.text()
+                await resp.text()
                 current_url = str(resp.url)
         except Exception as e:
             print(f"[stiq-custom] Error fetching initial cookies: {e}", file=sys.stderr)
