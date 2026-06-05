@@ -29,7 +29,6 @@ class ConfigManager:
         self.market_provider: str = "yahoo"
         self.quotes_provider: str = "yahoo"
         self.history_provider: str = "yahoo"
-        self.weekend_provider: str = "yahoo"
         self.use_rate_limit: bool = True
         self.tiingo_threshold_level: int = 6
         self._load()
@@ -51,7 +50,6 @@ class ConfigManager:
                     self.market_provider = data.get("market_provider", "yahoo")
                     self.quotes_provider = data.get("quotes_provider", "yahoo")
                     self.history_provider = data.get("history_provider", "yahoo")
-                    self.weekend_provider = data.get("weekend_provider", "yahoo")
                     self.use_rate_limit = bool(data.get("use_rate_limit", True))
                     self.tiingo_threshold_level = int(
                         data.get("tiingo_threshold_level", 6)
@@ -69,7 +67,6 @@ class ConfigManager:
                 "market_provider": self.market_provider,
                 "quotes_provider": self.quotes_provider,
                 "history_provider": self.history_provider,
-                "weekend_provider": self.weekend_provider,
                 "use_rate_limit": self.use_rate_limit,
                 "tiingo_threshold_level": self.tiingo_threshold_level,
                 "watchlist": self.watchlist,

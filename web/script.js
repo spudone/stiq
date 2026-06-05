@@ -82,7 +82,6 @@ function stiq() {
     quotes: [], // List of symbols
     quoteData: [], // List of quote objects
     marketData: [],
-    marketProvider: "yahoo",
     marketOpen: false,
     lastUpdated: null,
     currentDate: new Date().toLocaleDateString(undefined, { dateStyle: 'medium' }),
@@ -92,16 +91,15 @@ function stiq() {
     pollInterval: DEFAULT_INTERVAL, // In seconds
     sortKey: "quote",
     sortAsc: true,
-    provider: "yahoo",
+    quotesProvider: "yahoo",
+    marketProvider: "yahoo",
     historyProvider: "yahoo",
-    weekendProvider: "yahoo",
     tiingoUsage: { hourly_requests: 0, daily_requests: 0, monthly_bandwidth_mb: 0.0 },
 
     isTiingoActive() {
-      return this.provider === 'tiingo' || 
+      return this.quotesProvider === 'tiingo' || 
              this.marketProvider === 'tiingo' || 
-             this.historyProvider === 'tiingo' || 
-             this.weekendProvider === 'tiingo';
+             this.historyProvider === 'tiingo';
     },
 
     // ── Init ───────────────────────────────────────────────
@@ -113,10 +111,9 @@ function stiq() {
         if (config) {
           this.quotes = config.symbols || [];
           this.pollInterval = config.poll_interval_secs || DEFAULT_INTERVAL;
-          this.provider = config.provider || "yahoo";
+          this.quotesProvider = config.quotes_provider || "yahoo";
           this.marketProvider = config.market_provider || "yahoo";
           this.historyProvider = config.history_provider || "yahoo";
-          this.weekendProvider = config.weekend_provider || "yahoo";
         }
       } catch (err) {
         console.error("Error loading watchlist:", err);
@@ -142,7 +139,7 @@ function stiq() {
         navigator.sendBeacon("/api/shutdown");
       });
       
-      if (this.provider === "tiingo") {
+      if (this.quotesProvider === "tiingo") {
         setInterval(() => {
           this.lastUpdated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
         }, 1000);

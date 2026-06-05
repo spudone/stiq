@@ -103,10 +103,12 @@ def get_provider() -> DataProvider:
     quotes_prov = config.quotes_provider
     history_prov = config.history_provider
 
-    # Intelligent weekend/closed market fallback for history and quotes
-    if not builder.is_market_open() and getattr(config, "weekend_provider", None):
-        history_prov = config.weekend_provider
-        quotes_prov = config.weekend_provider
+    # Intelligent weekend/closed market fallback for quotes
+    if not builder.is_market_open():
+        if "yfinance" in (market_prov, quotes_prov, history_prov):
+            quotes_prov = "yfinance"
+        else:
+            quotes_prov = "yahoo"
 
     # Legacy STIQ_PROVIDER environment variable from Makefile overrides config
     env_prov = os.environ.get("STIQ_PROVIDER")
