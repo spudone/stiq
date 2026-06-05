@@ -404,170 +404,22 @@ class AsyncTiingoClient:
                     self._last_request_time = time.time()
 
             try:
-                existing_prices = history_data.get("raw_prices", [])
-                startDate = None
-                if history_data.get("last_updated"):
-                    try:
-                        last_dt = datetime.strptime(
-                            history_data["last_updated"], "%Y-%m-%d"
-                        ).date()
-                        start_dt = last_dt + timedelta(days=1)
-                        if start_dt <= datetime.now().date():
-                            startDate = start_dt.strftime("%Y-%m-%d")
-                    except ValueError:
-                        pass
+                # Get the start date for fetching historical data
+                startDate = self._determine_start_date(history_data)
 
-                if not startDate:
-                    startDate = (datetime.now() - timedelta(days=365)).strftime(
-                        "%Y-%m-%d"
-                    )
+                # Fetch and merge new price data with existing cache
+                history_data = await self._merge_and_filter_data(
+                    ticker, history_data, startDate
+                )
 
-                data = await self.get_ticker_price(ticker, startDate=startDate)
+                # Calculate metrics from the updated data
+                history_data = await self._calculate_metrics(history_data, ticker)
 
-                if data:
-                    existing_prices = history_data.get("raw_prices", [])
-
-                    new_dates = {item["date"].split("T")[0] for item in data}
-                    merged = [
-                        p
-                        for p in existing_prices
-                        if p["date"].split("T")[0] not in new_dates
-                    ]
-                    merged.extend(data)
-
-                    merged.sort(key=lambda x: x["date"])
-
-                    cutoff = (datetime.now() - timedelta(days=365)).date()
-                    filtered = []
-                    for p in merged:
-                        p_date_str = p["date"].split("T")[0]
-                        p_date = datetime.strptime(p_date_str, "%Y-%m-%d").date()
-                        if p_date >= cutoff:
-                            filtered.append(p)
-
-                    history_data["raw_prices"] = filtered
-
-                    data_prices = filtered
-                    if data_prices:
-                        is_full_history = False
-                        if len(data_prices) > 0:
-                            first_date_str = data_prices[0]["date"].split("T")[0]
-                            first_date = datetime.strptime(
-                                first_date_str, "%Y-%m-%d"
-                            ).date()
-                            if first_date <= (
-                                datetime.now().date() - timedelta(days=360)
-                            ):
-                                is_full_history = True
-
-                        has_cached_metrics = (
-                            "high_52w" in history_data and "low_52w" in history_data
-                        )
-
-                        if is_full_history or not has_cached_metrics:
-                            high_52w = max(
-                                (item.get("high", 0) for item in data_prices),
-                                default=None,
-                            )
-                            low_52w = min(
-                                (item.get("low", float("inf")) for item in data_prices),
-                                default=None,
-                            )
-                            if low_52w == float("inf"):
-                                low_52w = None
-
-                            div_rate = sum(
-                                item.get("divCash", 0) for item in data_prices
-                            )
-
-                            vol_days = (
-                                data_prices[-10:]
-                                if len(data_prices) >= 10
-                                else data_prices
-                            )
-                            avg_vol = (
-                                sum(item.get("volume", 0) for item in vol_days)
-                                / len(vol_days)
-                                if vol_days
-                                else None
-                            )
-
-                            history_days = (
-                                data_prices[-30:]
-                                if len(data_prices) >= 30
-                                else data_prices
-                            )
-                            history = [item.get("close", 0) for item in history_days]
-                        else:
-                            new_high = max(
-                                (item.get("high", 0) for item in data), default=0
-                            )
-                            cached_high = history_data.get("high_52w") or 0
-                            high_52w = (
-                                max(cached_high, new_high) if cached_high else new_high
-                            )
-
-                            new_low = min(
-                                (item.get("low", float("inf")) for item in data),
-                                default=float("inf"),
-                            )
-                            cached_low = history_data.get("low_52w")
-                            if cached_low is None:
-                                cached_low = float("inf")
-                            low_52w = min(cached_low, new_low)
-                            if low_52w == float("inf"):
-                                low_52w = None
-
-                            cached_div = history_data.get("dividend_rate") or 0
-                            new_divs = sum(item.get("divCash", 0) for item in data)
-                            div_rate = cached_div + new_divs
-
-                            N = len(data)
-                            cached_vol = history_data.get("avg_volume") or 0
-                            if N >= 10:
-                                vol_days = data[-10:]
-                                avg_vol = (
-                                    sum(item.get("volume", 0) for item in vol_days)
-                                    / 10.0
-                                )
-                            elif N > 0 and cached_vol:
-                                avg_vol = (
-                                    (10 - N) * cached_vol
-                                    + sum(item.get("volume", 0) for item in data)
-                                ) / 10.0
-                            else:
-                                avg_vol = cached_vol
-
-                            cached_history = history_data.get("history") or []
-                            new_closes = [item.get("close", 0) for item in data]
-                            history = (cached_history + new_closes)[-30:]
-
-                        if high_52w:
-                            history_data["high_52w"] = high_52w
-                        if low_52w:
-                            history_data["low_52w"] = low_52w
-                        if div_rate > 0:
-                            history_data["dividend_rate"] = div_rate
-                        if avg_vol:
-                            history_data["avg_volume"] = avg_vol
-                        history_data["history"] = history
-
-                        latest_close = data_prices[-1].get("close")
-                        if latest_close and div_rate > 0:
-                            history_data["dividend_yield"] = div_rate / latest_close
-                        else:
-                            history_data["dividend_yield"] = None
-
-                        # These can't be derived from prices alone; store as None so
-                        # Yahoo/yfinance can later fill them in via smart merge.
-                        if "market_cap" not in history_data:
-                            history_data.setdefault("market_cap", None)
-                        if "pe_ratio" not in history_data:
-                            history_data.setdefault("pe_ratio", None)
+                # Process final result for return
+                history_data = self._process_final_history(history_data, today_str)
             except Exception as e:
                 raise TiingoAPIError(f"Fetch failed: {e}") from e
 
-            history_data["last_updated"] = today_str
             cache.set_history(ticker, history_data)
 
             return history_data
@@ -575,3 +427,183 @@ class AsyncTiingoClient:
             raise
         except Exception as e:
             raise TiingoAPIError(f"Fetch failed: {e}") from e
+
+    def _determine_start_date(self, history_data: dict[str, Any]) -> str:
+        """
+        Determine the start date for fetching historical data.
+
+        Returns a string in YYYY-MM-DD format.
+        """
+        startDate = None
+        if history_data.get("last_updated"):
+            try:
+                last_dt = datetime.strptime(
+                    history_data["last_updated"], "%Y-%m-%d"
+                ).date()
+                start_dt = last_dt + timedelta(days=1)
+                if start_dt <= datetime.now().date():
+                    startDate = start_dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+        if not startDate:
+            startDate = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
+        return startDate
+
+    async def _merge_and_filter_data(
+        self, ticker: str, history_data: dict[str, Any], startDate: str
+    ) -> dict[str, Any]:
+        """
+        Fetch new data and merge it with existing cached data.
+
+        Returns the updated history_data dictionary.
+        """
+        data = await self.get_ticker_price(ticker, startDate=startDate)
+
+        if data:
+            existing_prices = history_data.get("raw_prices", [])
+
+            new_dates = {item["date"].split("T")[0] for item in data}
+            merged = [
+                p for p in existing_prices if p["date"].split("T")[0] not in new_dates
+            ]
+            merged.extend(data)
+
+            merged.sort(key=lambda x: x["date"])
+
+            cutoff = (datetime.now() - timedelta(days=365)).date()
+            filtered = []
+            for p in merged:
+                p_date_str = p["date"].split("T")[0]
+                p_date = datetime.strptime(p_date_str, "%Y-%m-%d").date()
+                if p_date >= cutoff:
+                    filtered.append(p)
+
+            history_data["raw_prices"] = filtered
+
+        return history_data
+
+    async def _calculate_metrics(
+        self, history_data: dict[str, Any], ticker: str
+    ) -> dict[str, Any]:
+        """
+        Calculate financial metrics from historical data.
+
+        Returns the updated history_data dictionary with calculated fields.
+        """
+        # Get the data prices
+        data_prices = history_data.get("raw_prices", [])
+        if not data_prices:
+            return history_data
+
+        # Check if we have full history or need to calculate metrics from scratch
+        is_full_history = False
+        if len(data_prices) > 0:
+            first_date_str = data_prices[0]["date"].split("T")[0]
+            first_date = datetime.strptime(first_date_str, "%Y-%m-%d").date()
+            if first_date <= (datetime.now().date() - timedelta(days=360)):
+                is_full_history = True
+
+        has_cached_metrics = "high_52w" in history_data and "low_52w" in history_data
+
+        if is_full_history or not has_cached_metrics:
+            # Calculate metrics from full data set
+            high_52w = max(
+                (item.get("high", 0) for item in data_prices),
+                default=None,
+            )
+            low_52w = min(
+                (item.get("low", float("inf")) for item in data_prices),
+                default=None,
+            )
+            if low_52w == float("inf"):
+                low_52w = None
+
+            div_rate = sum(item.get("divCash", 0) for item in data_prices)
+
+            vol_days = data_prices[-10:] if len(data_prices) >= 10 else data_prices
+            avg_vol = (
+                sum(item.get("volume", 0) for item in vol_days) / len(vol_days)
+                if vol_days
+                else None
+            )
+
+            history_days = data_prices[-30:] if len(data_prices) >= 30 else data_prices
+            history = [item.get("close", 0) for item in history_days]
+        else:
+            # Update metrics with new data only
+            new_high = max((item.get("high", 0) for item in data_prices), default=0)
+            cached_high = history_data.get("high_52w") or 0
+            high_52w = max(cached_high, new_high) if cached_high else new_high
+
+            new_low = min(
+                (item.get("low", float("inf")) for item in data_prices),
+                default=float("inf"),
+            )
+            cached_low = history_data.get("low_52w")
+            if cached_low is None:
+                cached_low = float("inf")
+            low_52w = min(cached_low, new_low)
+            if low_52w == float("inf"):
+                low_52w = None
+
+            cached_div = history_data.get("dividend_rate") or 0
+            # Since we're only getting a partial update from API, let's recalculate dividend rate with data
+            new_divs = sum(item.get("divCash", 0) for item in data_prices)
+            div_rate = cached_div + new_divs
+
+            N = len(data_prices)
+            cached_vol = history_data.get("avg_volume") or 0
+            if N >= 10:
+                vol_days = data_prices[-10:]
+                avg_vol = sum(item.get("volume", 0) for item in vol_days) / 10.0
+            elif N > 0 and cached_vol:
+                avg_vol = (
+                    (10 - N) * cached_vol
+                    + sum(item.get("volume", 0) for item in data_prices)
+                ) / 10.0
+            else:
+                avg_vol = cached_vol
+
+            cached_history = history_data.get("history") or []
+            new_closes = [item.get("close", 0) for item in data_prices]
+            history = (cached_history + new_closes)[-30:]
+
+        # Set the calculated metrics in history_data
+        if high_52w:
+            history_data["high_52w"] = high_52w
+        if low_52w:
+            history_data["low_52w"] = low_52w
+        if div_rate > 0:
+            history_data["dividend_rate"] = div_rate
+        if avg_vol:
+            history_data["avg_volume"] = avg_vol
+        history_data["history"] = history
+
+        # Calculate dividend yield
+        latest_close = data_prices[-1].get("close")
+        if latest_close and div_rate > 0:
+            history_data["dividend_yield"] = div_rate / latest_close
+        else:
+            history_data["dividend_yield"] = None
+
+        # These can't be derived from prices alone; store as None so
+        # Yahoo/yfinance can later fill them in via smart merge.
+        if "market_cap" not in history_data:
+            history_data.setdefault("market_cap", None)
+        if "pe_ratio" not in history_data:
+            history_data.setdefault("pe_ratio", None)
+
+        return history_data
+
+    def _process_final_history(
+        self, history_data: dict[str, Any], today_str: str
+    ) -> dict[str, Any]:
+        """
+        Final processing of the history data before returning it.
+
+        Returns the final history_data dictionary.
+        """
+        history_data["last_updated"] = today_str
+        return history_data
