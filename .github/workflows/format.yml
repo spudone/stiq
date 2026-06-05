@@ -21,11 +21,10 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.11
 
-      # Uses uv to run Ruff instantly without a separate pip install step
       - name: Run Ruff Formatter
-        run: uv run ruff format .
+        run: uv run --with ruff ruff format .
 
       - name: Commit and Push changes
         uses: stefanzweifel/git-auto-commit-action@v5
