@@ -215,7 +215,11 @@ function stiq() {
       // Floor at 60 seconds to prevent rate limiting/browser thrashing
       const val = Math.max(60, parseInt(seconds));
       try {
-        const resp = await fetch("/api/watchlist/interval?seconds=" + val, { method: "POST" });
+        const resp = await fetch("/api/watchlist/interval", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seconds: val }),
+        });
         const res = await resp.json();
         if (res && res.success) {
           this.pollInterval = val;
@@ -235,7 +239,11 @@ function stiq() {
         return;
       }
       try {
-        const resp = await fetch("/api/watchlist/add?symbol=" + encodeURIComponent(quote), { method: "POST" });
+        const resp = await fetch("/api/watchlist/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: quote }),
+        });
         const res = await resp.json();
         if (res && res.success) {
           this.quotes.push(quote);
@@ -249,7 +257,11 @@ function stiq() {
 
     async removeQuote(quote) {
       try {
-        const resp = await fetch("/api/watchlist/remove?symbol=" + encodeURIComponent(quote), { method: "POST" });
+        const resp = await fetch("/api/watchlist/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: quote }),
+        });
         const res = await resp.json();
         if (res && res.success) {
           this.quotes = this.quotes.filter((q) => q !== quote);
