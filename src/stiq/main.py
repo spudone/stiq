@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import uvicorn
+from stiq.app import app
 
 if __name__ == "__main__":
-    uvicorn.run("stiq.app:app", host="127.0.0.1", port=8123, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8123, log_level="info")
