@@ -62,7 +62,7 @@ class WatchlistAddRequest(BaseModel):
 
 
 class WatchlistRemoveRequest(BaseModel):
-    symbol: str = Field(..., min_length=1, max_length=10)
+    symbol: str = Field(..., min_length=1)
 
 
 class WatchlistIntervalRequest(BaseModel):

@@ -108,4 +108,15 @@ class ConfigManager:
         self.save()
 
 
-config = ConfigManager()
+config: ConfigManager | None = None
+
+
+def init_config() -> None:
+    global config
+    config = ConfigManager()
+
+
+def get_config() -> ConfigManager:
+    if config is None:
+        raise RuntimeError("Config not initialized")
+    return config

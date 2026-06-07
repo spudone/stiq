@@ -40,4 +40,15 @@ class EventBus:
                 pass
 
 
-event_bus = EventBus()
+event_bus: EventBus | None = None
+
+
+def init_event_bus() -> None:
+    global event_bus
+    event_bus = EventBus()
+
+
+def get_event_bus() -> EventBus:
+    if event_bus is None:
+        raise RuntimeError("EventBus not initialized")
+    return event_bus

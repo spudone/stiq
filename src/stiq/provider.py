@@ -96,12 +96,12 @@ def _get_single_provider(name: str) -> DataProvider:
 
 def get_provider() -> DataProvider:
     """Factory to return the configured provider."""
-    from .config import config
+    from .config import get_config
     from .builder import builder
 
-    market_prov = config.market_provider
-    quotes_prov = config.quotes_provider
-    history_prov = config.history_provider
+    market_prov = get_config().market_provider
+    quotes_prov = get_config().quotes_provider
+    history_prov = get_config().history_provider
 
     # Intelligent weekend/closed market fallback for quotes
     if not builder.is_market_open():
