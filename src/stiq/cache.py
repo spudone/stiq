@@ -86,7 +86,3 @@ class CacheManager:
 
         self.data[sym.upper()] = merged
         self.save()
-
-
-# Shared global cache instance
-cache = CacheManager()

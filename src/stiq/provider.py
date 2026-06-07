@@ -18,8 +18,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-# Note: this could move to a new file if/when other providers are implemented
+if TYPE_CHECKING:
+    from .config import ConfigManager
+    from .events import EventBus
+    from .tiingo_usage import TiingoUsageTracker
+    from .cache import CacheManager
+    from .builder import QuoteBuilder
+
 YAHOO_MARKET_TICKERS = {
     "Dow": "^DJI",
     "S&P 500": "^GSPC",
@@ -53,6 +60,71 @@ class DataProvider(ABC):
         pass
 
 
+class ProviderFactory:
+    """Responsible for instantiating and caching individual providers."""
+
+    def __init__(
+        self,
+        config: "ConfigManager",
+        event_bus: "EventBus",
+        usage_tracker: "TiingoUsageTracker",
+        cache: "CacheManager",
+        builder: "QuoteBuilder",
+    ) -> None:
+        self.config = config
+        self.event_bus = event_bus
+        self.usage_tracker = usage_tracker
+        self.cache = cache
+        self.builder = builder
+        self._instance_cache: dict[str, DataProvider] = {}
+        self._provider_creators = {
+            "yfinance": self._create_yfinance,
+            "tiingo": self._create_tiingo,
+            "yahoo": self._create_yahoo,
+        }
+
+    def _create_yfinance(self) -> DataProvider:
+        from .yfinance_provider import YFinanceProvider
+
+        return YFinanceProvider(
+            self.config,
+            self.event_bus,
+            self.usage_tracker,
+            self.cache,
+            self.builder,
+        )
+
+    def _create_tiingo(self) -> DataProvider:
+        from .tiingo_provider import TiingoWebSocketProvider
+
+        return TiingoWebSocketProvider(
+            self.config,
+            self.event_bus,
+            self.usage_tracker,
+            self.cache,
+            self.builder,
+        )
+
+    def _create_yahoo(self) -> DataProvider:
+        from .yahoo_provider import YahooProvider
+
+        return YahooProvider(
+            self.config,
+            self.event_bus,
+            self.usage_tracker,
+            self.cache,
+            self.builder,
+        )
+
+    def get(self, name: str) -> DataProvider:
+        """Return a cached provider instance, creating it if needed."""
+        name = name.lower()
+        if name not in self._instance_cache:
+            creator = self._provider_creators.get(name, self._create_yahoo)
+            self._instance_cache[name] = creator()
+        return self._instance_cache[name]
+
+
 class MultiplexProvider(DataProvider):
     """Routes different data fetch requests to independently configured providers."""
 
@@ -73,35 +145,19 @@ class MultiplexProvider(DataProvider):
         return await self.history.fetch_history(symbols)
 
 
-_provider_instances: dict[str, DataProvider] = {}
+def create_provider(
+    config: "ConfigManager",
+    event_bus: "EventBus",
+    usage_tracker: "TiingoUsageTracker",
+    cache: "CacheManager",
+    builder: "QuoteBuilder",
+) -> DataProvider:
+    """Factory to return the configured multiplex provider."""
+    factory = ProviderFactory(config, event_bus, usage_tracker, cache, builder)
 
-
-def _get_single_provider(name: str) -> DataProvider:
-    name = name.lower()
-    if name not in _provider_instances:
-        if name == "yfinance":
-            from .yfinance_provider import YFinanceProvider
-
-            _provider_instances[name] = YFinanceProvider()
-        elif name == "tiingo":
-            from .tiingo_provider import TiingoWebSocketProvider
-
-            _provider_instances[name] = TiingoWebSocketProvider()
-        else:
-            from .yahoo_provider import YahooProvider
-
-            _provider_instances[name] = YahooProvider()
-    return _provider_instances[name]
-
-
-def get_provider() -> DataProvider:
-    """Factory to return the configured provider."""
-    from .config import get_config
-    from .builder import builder
-
-    market_prov = get_config().market_provider
-    quotes_prov = get_config().quotes_provider
-    history_prov = get_config().history_provider
+    market_prov = config.market_provider
+    quotes_prov = config.quotes_provider
+    history_prov = config.history_provider
 
     # Intelligent weekend/closed market fallback for quotes
     if not builder.is_market_open():
@@ -119,7 +175,7 @@ def get_provider() -> DataProvider:
         history_prov = env_prov
 
     return MultiplexProvider(
-        _get_single_provider(market_prov),
-        _get_single_provider(quotes_prov),
-        _get_single_provider(history_prov),
+        factory.get(market_prov),
+        factory.get(quotes_prov),
+        factory.get(history_prov),
     )

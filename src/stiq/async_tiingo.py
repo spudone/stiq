@@ -24,11 +24,12 @@ import sys
 import urllib.parse
 import websockets
 from datetime import datetime, timedelta, date
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from .cache import cache
-from .tiingo_usage import tiingo_usage_tracker
-from .config import config
+if TYPE_CHECKING:
+    from .config import ConfigManager
+    from .tiingo_usage import TiingoUsageTracker
+    from .cache import CacheManager
 
 
 class TiingoAPIError(Exception):
@@ -61,7 +62,16 @@ class AsyncTiingoClient:
     An asynchronous subset of tiingo-python using aiohttp and websockets.
     """
 
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config_manager: "ConfigManager",
+        usage_tracker: "TiingoUsageTracker",
+        cache: "CacheManager",
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        self.config_manager = config_manager
+        self.usage_tracker = usage_tracker
+        self.cache = cache
         self.config = config or {}
         self.api_key = self.config.get("api_key", "")
         self.base_url = "https://api.tiingo.com"
@@ -128,7 +138,7 @@ class AsyncTiingoClient:
                     len(k) + len(v) for k, v in response.request_info.headers.items()
                 )
                 body_bytes = await response.read()
-                await tiingo_usage_tracker.track_request(req_bytes, len(body_bytes))
+                await self.usage_tracker.track_request(req_bytes, len(body_bytes))
                 return json.loads(body_bytes)
 
         raise TiingoAPIError(f"Request to {url} failed after {max_retries} retries")
@@ -216,13 +226,13 @@ class AsyncTiingoClient:
             "eventName": "subscribe",
             "authorization": self.api_key,
             "eventData": {
-                "thresholdLevel": config.tiingo_threshold_level,
+                "thresholdLevel": self.config_manager.tiingo_threshold_level,
                 "tickers": sorted(tickers),
             },
         }
         msg_str = json.dumps(msg)
         await self._iex_ws.send(msg_str)
-        await tiingo_usage_tracker.track_ws_bytes(len(msg_str.encode("utf-8")))
+        await self.usage_tracker.track_ws_bytes(len(msg_str.encode("utf-8")))
 
     async def subscribe_iex(self, tickers: list[str]) -> None:
         """Dynamically update IEX subscriptions."""
@@ -257,7 +267,7 @@ class AsyncTiingoClient:
                 }
                 msg_str = json.dumps(msg)
                 await ws.send(msg_str)
-                await tiingo_usage_tracker.track_ws_bytes(len(msg_str.encode("utf-8")))
+                await self.usage_tracker.track_ws_bytes(len(msg_str.encode("utf-8")))
                 print(
                     f"[tiingo-ws] IEX removed tickers: {sorted(removed_tickers)}",
                     file=sys.stderr,
@@ -290,7 +300,7 @@ class AsyncTiingoClient:
             else:
                 msg_len = len(raw_msg.encode("utf-8"))
 
-            task = asyncio.create_task(tiingo_usage_tracker.track_ws_bytes(msg_len))
+            task = asyncio.create_task(self.usage_tracker.track_ws_bytes(msg_len))
             self._background_tasks.add(task)
             task.add_done_callback(self._task_done)
 
@@ -366,7 +376,7 @@ class AsyncTiingoClient:
 
     def get_cached_history(self, ticker: str) -> dict[str, Any] | None:
         """Returns synchronously the cached history data, bypassing API entirely."""
-        return cache.get_history(ticker.upper())
+        return self.cache.get_history(ticker.upper())
 
     async def get_history(self, ticker: str) -> dict[str, Any]:
         """
@@ -379,19 +389,19 @@ class AsyncTiingoClient:
 
         try:
             if not self.api_key:
-                return cache.get_history(ticker) or {}
+                return self.cache.get_history(ticker) or {}
 
             today_str = date.today().isoformat()
-            history_data = cache.get_history(ticker) or {}
+            history_data = self.cache.get_history(ticker) or {}
             if history_data.get("last_updated") == today_str:
                 return history_data
 
-            use_rate_limit = config.use_rate_limit
+            use_rate_limit = self.config_manager.use_rate_limit
 
             if use_rate_limit:
                 async with self._request_lock:
                     # Double check
-                    history_data = cache.get_history(ticker) or {}
+                    history_data = self.cache.get_history(ticker) or {}
                     if history_data.get("last_updated") == today_str:
                         return history_data
 
@@ -420,7 +430,7 @@ class AsyncTiingoClient:
             except Exception as e:
                 raise TiingoAPIError(f"Fetch failed: {e}") from e
 
-            cache.set_history(ticker, history_data)
+            self.cache.set_history(ticker, history_data)
 
             return history_data
         except TiingoAPIError:
