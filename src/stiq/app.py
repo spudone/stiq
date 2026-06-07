@@ -36,6 +36,7 @@ def resource_path(relative_path: str) -> str:
         base_path = os.path.abspath(os.path.dirname(__file__))
     return os.path.join(base_path, relative_path)
 
+
 # --- Lifecycle Management ---
 
 # Global components
@@ -82,6 +83,7 @@ def launch_app_window(url: str) -> None:
     print("[stiq] Chrome/Edge not found, falling back to default browser…")
     webbrowser.open(url)
 
+
 async def background_poller():
     """Periodically fetches market, history, and polling quotes, pushing them to EventBus."""
     last_history_fetch = None
@@ -112,9 +114,12 @@ async def background_poller():
             print(f"[stiq] Poller error: {e}", file=sys.stderr)
 
         sleep_secs = (
-            300 if config_manager.quotes_provider == "tiingo" else config_manager.poll_interval_secs
+            300
+            if config_manager.quotes_provider == "tiingo"
+            else config_manager.poll_interval_secs
         )
         await asyncio.sleep(sleep_secs)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -138,6 +143,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+
 app = FastAPI(title="Stiq API", lifespan=lifespan)
 app.state.port = 8123
 
@@ -158,6 +164,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         content={"detail": exc.detail},
     )
 
+
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     # Log the error in a real application
@@ -167,19 +174,24 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={"detail": "An unexpected error occurred."},
     )
 
+
 # --- API Endpoints ---
+
 
 @app.get("/api/watchlist", response_model=WatchlistConfig)
 async def get_watchlist():
     return config_manager.get_config()
 
+
 @app.get("/api/tiingo_usage", response_model=TiingoUsage)
 async def get_tiingo_usage():
     return usage_tracker.get_usage_dict()
 
+
 @app.get("/api/market")
 async def get_market():
     return await provider.fetch_market()
+
 
 @app.get("/api/quotes")
 async def get_quotes(symbols: str):
@@ -207,6 +219,7 @@ async def get_history(symbols: str):
     history_data = await provider.fetch_history(symbol_list)
     return history_data
 
+
 @app.post("/api/watchlist/add")
 async def add_to_watchlist(
     request: Request,
@@ -222,8 +235,11 @@ async def add_to_watchlist(
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol is required")
     if not config_manager.add_symbol(symbol):
-        raise HTTPException(status_code=400, detail="Symbol already in watchlist or invalid")
+        raise HTTPException(
+            status_code=400, detail="Symbol already in watchlist or invalid"
+        )
     return {"success": True, "symbol": symbol}
+
 
 @app.post("/api/watchlist/remove")
 async def remove_from_watchlist(
@@ -241,6 +257,7 @@ async def remove_from_watchlist(
         raise HTTPException(status_code=400, detail="Symbol not in watchlist")
     return {"success": True, "symbol": symbol}
 
+
 @app.post("/api/watchlist/interval")
 async def update_interval(
     request: Request,
@@ -255,9 +272,11 @@ async def update_interval(
     config_manager.set_interval(seconds_val)
     return {"success": True, "interval": seconds_val}
 
+
 async def delayed_exit(delay_secs: float):
     await asyncio.sleep(delay_secs)
     os._exit(0)
+
 
 @app.post("/api/shutdown")
 async def shutdown():
@@ -265,6 +284,7 @@ async def shutdown():
     usage_tracker.save()
     asyncio.create_task(delayed_exit(0.5))
     return {"success": True}
+
 
 @app.get("/api/stream")
 async def stream_events():
@@ -281,7 +301,9 @@ async def stream_events():
 
     return EventSourceResponse(event_generator())
 
+
 # --- Static Files ---
+
 
 def _find_web_dir() -> str:
     """Locate the web/ directory for serving static files.
@@ -296,7 +318,9 @@ def _find_web_dir() -> str:
         if os.path.isdir(candidate):
             return candidate
     # Development: web/ is at project root (parent of parent of this file)
-    candidate = str(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web")))
+    candidate = str(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web"))
+    )
     if os.path.isdir(candidate):
         return candidate
     # Fallback: look for web/ in the bundle root
@@ -308,10 +332,12 @@ app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")
 
 # --- Main Entrypoint for running with uvicorn ---
 
+
 def run_app():
     # Find the absolute path to the web directory
     # Since we'll be running this from the project root, "web" should be fine.
     uvicorn.run(app, host="127.0.0.1", port=8123)
+
 
 if __name__ == "__main__":
     run_app()

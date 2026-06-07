@@ -1,6 +1,7 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+
 class WatchlistConfig(BaseModel):
     symbols: List[str]
     poll_interval_secs: int = Field(default=300, ge=60)
@@ -10,19 +11,23 @@ class WatchlistConfig(BaseModel):
     use_rate_limit: bool = True
     tiingo_threshold_level: int = 6
 
+
 class TiingoUsage(BaseModel):
     hourly_requests: int
     daily_requests: int
     monthly_bandwidth_mb: float
+
 
 class MarketIndex(BaseModel):
     name: str
     value: float
     change: float
 
+
 class MarketResponse(BaseModel):
     indices: List[MarketIndex]
     is_open: bool
+
 
 class RealtimeQuote(BaseModel):
     quote: str
@@ -33,6 +38,7 @@ class RealtimeQuote(BaseModel):
     high: float
     low: float
     volume: float
+
 
 class HistoricalQuote(BaseModel):
     quote: str
@@ -46,17 +52,22 @@ class HistoricalQuote(BaseModel):
     currency: str = "USD"
     history: List[float] = []
 
+
 class UnifiedQuote(RealtimeQuote, HistoricalQuote):
     pass
+
 
 class WatchlistAddRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=10)
 
+
 class WatchlistRemoveRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=10)
 
+
 class WatchlistIntervalRequest(BaseModel):
     seconds: int = Field(..., ge=60)
+
 
 class ErrorResponse(BaseModel):
     detail: str
