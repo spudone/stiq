@@ -169,10 +169,31 @@ async def lifespan(app: FastAPI):
     app.state.builder = builder
     app.state.provider = provider
 
-    # Startup — launch the Chrome app window before starting background tasks
+    # Startup — launch the Chrome app window after a brief delay
+    # so Uvicorn can finish the lifespan and start accepting requests
     url = f"http://127.0.0.1:{app.state.port}/index.html"
-    launch_app_window(url)
     print(f"[stiq] Starting application on {url}")
+
+    async def wait_and_launch():
+        import urllib.request
+        import urllib.error
+
+        # Poll the server until it responds, meaning Uvicorn is fully up
+        for _ in range(50):
+            try:
+                # Send a quick request to see if the server responds
+                await asyncio.to_thread(urllib.request.urlopen, url, timeout=0.5)
+                break
+            except urllib.error.HTTPError:
+                # Server is up and responded with an HTTP status code (e.g., 404, 500)
+                break
+            except Exception:
+                # Server is not up yet, wait 0.1s and try again
+                await asyncio.sleep(0.1)
+
+        launch_app_window(url)
+
+    asyncio.create_task(wait_and_launch())
 
     poller_task = asyncio.create_task(
         background_poller(config_manager, provider, event_bus, builder)
