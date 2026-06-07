@@ -11,7 +11,7 @@ This project is licensed under the GNU Affero General Public License v3.0.
 - **Market Overview:** Top-bar tracking of global indices, bond yields, currencies, and commodities.
 - **Dynamic Watchlist:** Add and remove stock quotes instantly.
 - **Sparklines:** 30-day historical trend charts for every quote in your list.
-- **100% Node-Free:** Built with Python, HTMX, and Alpine.js. No `npm` or complex JS build tools.
+- **Simple Build:** Built with Python, HTMX, and Alpine.js. No `npm` or complex JS build tools.
 - **Real-Time Push Architecture:** Zero-flicker UI powered by a Server-Sent Events (SSE) backend.
 
 ## Tech Stack

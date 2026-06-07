@@ -20,24 +20,44 @@ import asyncio
 import json
 import os
 import sys
-from typing import Any
-
+from typing import Any, TYPE_CHECKING
 from .provider import DataProvider
-from .builder import builder
 from .async_tiingo import AsyncTiingoClient
-from .config import get_config
+
+if TYPE_CHECKING:
+    from .config import ConfigManager
+    from .events import EventBus
+    from .tiingo_usage import TiingoUsageTracker
+    from .cache import CacheManager
+    from .builder import QuoteBuilder
 
 
 class TiingoWebSocketProvider(DataProvider):
     """DataProvider implementation using Tiingo IEX + FX API."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        config: "ConfigManager",
+        event_bus: "EventBus",
+        usage_tracker: "TiingoUsageTracker",
+        cache: "CacheManager",
+        builder: "QuoteBuilder",
+    ) -> None:
+        self.config = config
+        self.event_bus = event_bus
+        self.usage_tracker = usage_tracker
+        self.cache = cache
+        self.builder = builder
+
         self._api_key: str = os.environ.get("TIINGO_API_KEY", "")
         if not self._api_key:
             print("[tiingo-ws] WARNING: TIINGO_API_KEY not set", file=sys.stderr)
 
         self.client = AsyncTiingoClient(
-            config={"api_key": self._api_key, "on_quote": self._handle_tiingo_quote}
+            config_manager=self.config,
+            usage_tracker=self.usage_tracker,
+            cache=self.cache,
+            config={"api_key": self._api_key, "on_quote": self._handle_tiingo_quote},
         )
 
         self._iex_cache: dict[str, dict[str, Any]] = {}
@@ -100,7 +120,7 @@ class TiingoWebSocketProvider(DataProvider):
         if price < low and price > 0:
             low = price
 
-        normalized = builder.build_realtime_quote(
+        normalized = self.builder.build_realtime_quote(
             sym=ticker,
             price=price,
             prev_close=prev_close,
@@ -112,11 +132,9 @@ class TiingoWebSocketProvider(DataProvider):
         self._iex_cache[ticker] = normalized
         self._quotes_cache[ticker] = normalized
 
-        from .events import get_event_bus
-
         publish_data = dict(normalized)
         publish_data["quote"] = ticker
-        get_event_bus().publish("quote", publish_data)
+        self.event_bus.publish("quote", publish_data)
 
     async def _ensure_started(self) -> None:
         """Starts connection tasks on the active asyncio loop when first accessed."""
@@ -131,7 +149,7 @@ class TiingoWebSocketProvider(DataProvider):
         """Collect all equity tickers we need from the IEX feed."""
         tickers: set[str] = set()
         try:
-            for sym in get_config().watchlist:
+            for sym in self.config.watchlist:
                 tickers.add(sym.upper())
         except Exception:
             pass
@@ -141,7 +159,7 @@ class TiingoWebSocketProvider(DataProvider):
         """Seed initial values using the REST API for closed market or immediate display."""
         cache_file = os.path.expanduser("~/.stiq/tiingo_cache.json")
 
-        if builder.is_market_open():
+        if self.builder.is_market_open():
             if os.path.exists(cache_file):
                 try:
                     os.remove(cache_file)
@@ -171,7 +189,7 @@ class TiingoWebSocketProvider(DataProvider):
                     low = float(r.get("low") or 0.0)
                     volume = float(r.get("volume") or 0.0)
 
-                    normalized = builder.build_realtime_quote(
+                    normalized = self.builder.build_realtime_quote(
                         sym=ticker,
                         price=price,
                         prev_close=prev_close,
@@ -194,7 +212,7 @@ class TiingoWebSocketProvider(DataProvider):
 
     async def fetch_market(self) -> dict[str, Any]:
         # No-op since Tiingo doesn't supply indices
-        return {"indices": [], "is_open": builder.is_market_open()}
+        return {"indices": [], "is_open": self.builder.is_market_open()}
 
     async def fetch_quotes(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         if not symbols:
@@ -217,7 +235,7 @@ class TiingoWebSocketProvider(DataProvider):
                 data_iex = await self.client.get_iex_quotes(missing)
                 for r in data_iex:
                     ticker = r.get("ticker", "").upper()
-                    normalized = builder.build_realtime_quote(
+                    normalized = self.builder.build_realtime_quote(
                         sym=ticker,
                         price=float(r.get("tngoLast") or 0.0),
                         prev_close=float(r.get("prevClose") or 0.0),
@@ -243,7 +261,7 @@ class TiingoWebSocketProvider(DataProvider):
             elif sym_upper in self._iex_cache:
                 results[sym_upper] = self._iex_cache[sym_upper]
             else:
-                row = builder.build_realtime_quote(sym_upper)
+                row = self.builder.build_realtime_quote(sym_upper)
                 self._quotes_cache[sym_upper] = row
                 results[sym_upper] = row
 
@@ -255,7 +273,7 @@ class TiingoWebSocketProvider(DataProvider):
             history_data = await self.client.get_history(ticker)
 
             if history_data:
-                quote = builder.build_history_quote(
+                quote = self.builder.build_history_quote(
                     sym=ticker,
                     low_52w=history_data.get("low_52w"),
                     high_52w=history_data.get("high_52w"),
@@ -304,7 +322,7 @@ class TiingoWebSocketProvider(DataProvider):
             if sym_upper in self._history_cache:
                 results[sym_upper] = self._history_cache[sym_upper]
             else:
-                hist_row = builder.build_history_quote(
+                hist_row = self.builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=history_data.get("low_52w"),
                     high_52w=history_data.get("high_52w"),

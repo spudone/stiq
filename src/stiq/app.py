@@ -7,7 +7,7 @@ import sys
 import webbrowser
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import Body, FastAPI, HTTPException, Request, Query, Response
+from fastapi import Body, FastAPI, HTTPException, Request, Query, Response, Depends
 from typing import List
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,14 +22,12 @@ from stiq.schemas import (
     WatchlistIntervalRequest,
     UnifiedQuote,
 )
-from .config import init_config, get_config
-from .events import init_event_bus, get_event_bus
-from .tiingo_usage import init_usage_tracker, get_usage_tracker
-from stiq.provider import get_provider, DataProvider
+from stiq.provider import create_provider, DataProvider
 from stiq.config import ConfigManager
 from stiq.events import EventBus
 from stiq.tiingo_usage import TiingoUsageTracker
-from stiq.builder import builder
+from stiq.builder import QuoteBuilder
+from stiq.cache import CacheManager
 from datetime import datetime
 
 
@@ -42,13 +40,26 @@ def resource_path(relative_path: str) -> str:
     return os.path.join(base_path, relative_path)
 
 
-# --- Lifecycle Management ---
+# --- Dependencies ---
 
-# Global components
-config_manager: ConfigManager | None = None
-event_bus: EventBus | None = None
-usage_tracker: TiingoUsageTracker | None = None
-provider: DataProvider | None = None
+
+def get_config_dep(request: Request) -> ConfigManager:
+    return request.app.state.config
+
+
+def get_provider_dep(request: Request) -> DataProvider:
+    return request.app.state.provider
+
+
+def get_event_bus_dep(request: Request) -> EventBus:
+    return request.app.state.event_bus
+
+
+def get_usage_tracker_dep(request: Request) -> TiingoUsageTracker:
+    return request.app.state.usage_tracker
+
+
+# --- Lifecycle Management ---
 
 
 def launch_app_window(url: str) -> None:
@@ -89,7 +100,12 @@ def launch_app_window(url: str) -> None:
     webbrowser.open(url)
 
 
-async def background_poller():
+async def background_poller(
+    config_manager: ConfigManager,
+    provider: DataProvider,
+    event_bus: EventBus,
+    builder: QuoteBuilder,
+):
     """Periodically fetches market, history, and polling quotes, pushing them to EventBus."""
     last_history_fetch = None
     while True:
@@ -137,22 +153,30 @@ async def lifespan(app: FastAPI):
 
     logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
-    global config_manager, event_bus, usage_tracker, provider
-    init_config()
-    init_event_bus()
-    init_usage_tracker()
+    config_manager = ConfigManager()
+    event_bus = EventBus()
+    usage_tracker = TiingoUsageTracker(event_bus)
+    cache_manager = CacheManager()
+    builder = QuoteBuilder()
+    provider = create_provider(
+        config_manager, event_bus, usage_tracker, cache_manager, builder
+    )
 
-    config_manager = get_config()
-    event_bus = get_event_bus()
-    usage_tracker = get_usage_tracker()
-    provider = get_provider()
+    app.state.config = config_manager
+    app.state.event_bus = event_bus
+    app.state.usage_tracker = usage_tracker
+    app.state.cache = cache_manager
+    app.state.builder = builder
+    app.state.provider = provider
 
     # Startup — launch the Chrome app window before starting background tasks
     url = f"http://127.0.0.1:{app.state.port}/index.html"
     launch_app_window(url)
     print(f"[stiq] Starting application on {url}")
 
-    poller_task = asyncio.create_task(background_poller())
+    poller_task = asyncio.create_task(
+        background_poller(config_manager, provider, event_bus, builder)
+    )
     usage_task = asyncio.create_task(usage_tracker.periodic_save(60))
 
     yield
@@ -206,22 +230,27 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/api/watchlist", response_model=WatchlistConfig)
-async def get_watchlist():
-    return config_manager.get_config()
+async def get_watchlist(config: ConfigManager = Depends(get_config_dep)):
+    return config.get_config()
 
 
 @app.get("/api/tiingo_usage", response_model=TiingoUsage)
-async def get_tiingo_usage():
+async def get_tiingo_usage(
+    usage_tracker: TiingoUsageTracker = Depends(get_usage_tracker_dep),
+):
     return usage_tracker.get_usage_dict()
 
 
 @app.get("/api/market")
-async def get_market():
+async def get_market(provider: DataProvider = Depends(get_provider_dep)):
     return await provider.fetch_market()
 
 
 @app.get("/api/quotes", response_model=List[UnifiedQuote])
-async def get_quotes(symbols: str = Query(..., min_length=1)):
+async def get_quotes(
+    symbols: str = Query(..., min_length=1),
+    provider: DataProvider = Depends(get_provider_dep),
+):
     """Fetch quotes for symbols, merging realtime data with historical data."""
     symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
 
@@ -241,7 +270,7 @@ async def get_quotes(symbols: str = Query(..., min_length=1)):
 
 
 @app.get("/api/history")
-async def get_history(symbols: str):
+async def get_history(symbols: str, provider: DataProvider = Depends(get_provider_dep)):
     """Fetch history for symbols."""
     symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     history_data = await provider.fetch_history(symbol_list)
@@ -253,6 +282,7 @@ async def add_to_watchlist(
     request: Request,
     payload: WatchlistAddRequest | None = Body(default=None),
     symbol: str | None = None,
+    config: ConfigManager = Depends(get_config_dep),
 ):
     # Accept symbol from JSON body, query param, or form field
     if symbol is None and payload is None:
@@ -262,7 +292,7 @@ async def add_to_watchlist(
     symbol = (symbol or (payload.symbol if payload else "")).strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="Symbol is required")
-    if not config_manager.add_symbol(symbol):
+    if not config.add_symbol(symbol):
         raise HTTPException(
             status_code=400, detail="Symbol already in watchlist or invalid"
         )
@@ -274,6 +304,7 @@ async def remove_from_watchlist(
     request: Request,
     payload: WatchlistRemoveRequest | None = Body(default=None),
     symbol: str | None = None,
+    config: ConfigManager = Depends(get_config_dep),
 ):
     if symbol is None and payload is None:
         form = await request.form()
@@ -288,7 +319,7 @@ async def remove_from_watchlist(
         s = s.strip()
         if not s:
             continue
-        if config_manager.remove_symbol(s):
+        if config.remove_symbol(s):
             removed.append(s)
         else:
             not_found.append(s)
@@ -303,13 +334,14 @@ async def update_interval(
     request: Request,
     payload: WatchlistIntervalRequest | None = Body(default=None),
     seconds: str | None = None,
+    config: ConfigManager = Depends(get_config_dep),
 ):
     # Accept seconds from JSON body, query param, or form field
     if seconds is None and payload is None:
         form = await request.form()
         seconds = form.get("seconds")
     seconds_val = int(seconds) if seconds else payload.seconds if payload else 300
-    config_manager.set_interval(seconds_val)
+    config.set_interval(seconds_val)
     return {"success": True, "interval": seconds_val}
 
 
@@ -319,7 +351,7 @@ async def delayed_exit(delay_secs: float):
 
 
 @app.post("/api/shutdown")
-async def shutdown():
+async def shutdown(usage_tracker: TiingoUsageTracker = Depends(get_usage_tracker_dep)):
     print("[stiq] Shutting down...")
     usage_tracker.save()
     asyncio.create_task(delayed_exit(0.5))
@@ -327,7 +359,7 @@ async def shutdown():
 
 
 @app.get("/api/stream")
-async def stream_events():
+async def stream_events(event_bus: EventBus = Depends(get_event_bus_dep)):
     async def event_generator():
         queue: asyncio.Queue = asyncio.Queue()
         event_bus.subscribe(queue)

@@ -18,20 +18,39 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
-from .cache import cache
-from .builder import builder
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import ConfigManager
+    from .events import EventBus
+    from .tiingo_usage import TiingoUsageTracker
+    from .cache import CacheManager
+    from .builder import QuoteBuilder
 import sys
 import yfinance as yf
 
 
 class YFinanceProvider(DataProvider):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        config: "ConfigManager",
+        event_bus: "EventBus",
+        usage_tracker: "TiingoUsageTracker",
+        cache: "CacheManager",
+        builder: "QuoteBuilder",
+    ) -> None:
+        self.config = config
+        self.event_bus = event_bus
+        self.usage_tracker = usage_tracker
+        self.cache = cache
+        self.builder = builder
+
         self._market_cache = None
         self._quotes_cache = {}
         self._history_cache = {}
 
     async def fetch_market(self) -> dict[str, any]:
-        if not builder.is_market_open() and self._market_cache:
+        if not self.builder.is_market_open() and self._market_cache:
             return self._market_cache
 
         return await asyncio.to_thread(self._fetch_market_sync)
@@ -55,11 +74,13 @@ class YFinanceProvider(DataProvider):
                         if prev_close and prev_close != 0
                         else 0.0
                     )
-                    indices.append(builder.build_market_index(name, price, change_pct))
+                    indices.append(
+                        self.builder.build_market_index(name, price, change_pct)
+                    )
                 except Exception:
                     indices.append({"name": name, "value": None, "change": 0.0})
 
-            result = {"indices": indices, "is_open": builder.is_market_open()}
+            result = {"indices": indices, "is_open": self.builder.is_market_open()}
             self._market_cache = result
             return result
 
@@ -73,7 +94,7 @@ class YFinanceProvider(DataProvider):
         if not symbols:
             return {}
 
-        if not builder.is_market_open():
+        if not self.builder.is_market_open():
             results = {}
             all_cached = True
             for sym in symbols:
@@ -99,7 +120,7 @@ class YFinanceProvider(DataProvider):
                     t = tickers.tickers[sym]
                     info = t.fast_info
 
-                    row = builder.build_realtime_quote(
+                    row = self.builder.build_realtime_quote(
                         sym=sym_upper,
                         price=info.get("lastPrice", 0),
                         prev_close=info.get("previousClose", 0),
@@ -116,8 +137,8 @@ class YFinanceProvider(DataProvider):
                         f"[stiq] Quote error for {sym_upper} (yfinance): {e}",
                         file=sys.stderr,
                     )
-                    if not builder.is_market_open():
-                        row = builder.build_realtime_quote(sym_upper)
+                    if not self.builder.is_market_open():
+                        row = self.builder.build_realtime_quote(sym_upper)
                         self._quotes_cache[sym_upper] = row
                         results[sym_upper] = row
                     elif sym_upper in self._quotes_cache:
@@ -127,8 +148,8 @@ class YFinanceProvider(DataProvider):
             print(f"[stiq] Quotes fetch error (yfinance): {e}", file=sys.stderr)
             for sym in symbols:
                 sym_upper = sym.upper()
-                if not builder.is_market_open():
-                    row = builder.build_realtime_quote(sym_upper)
+                if not self.builder.is_market_open():
+                    row = self.builder.build_realtime_quote(sym_upper)
                     self._quotes_cache[sym_upper] = row
                     results[sym_upper] = row
                 elif sym_upper in self._quotes_cache:
@@ -140,7 +161,7 @@ class YFinanceProvider(DataProvider):
         if not symbols:
             return {}
 
-        if not builder.is_market_open():
+        if not self.builder.is_market_open():
             results = {}
             all_cached = True
             for sym in symbols:
@@ -165,7 +186,7 @@ class YFinanceProvider(DataProvider):
         # 1. Check cache first
         for sym in symbols:
             sym_upper = sym.upper()
-            cached = cache.get_history(sym_upper)
+            cached = self.cache.get_history(sym_upper)
 
             # Cache hit: it has today's date AND Yahoo metrics (check 'currency')
             if (
@@ -173,7 +194,7 @@ class YFinanceProvider(DataProvider):
                 and cached.get("last_updated") == today_str
                 and cached.get("currency") is not None
             ):
-                row = builder.build_history_quote(
+                row = self.builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=cached.get("low_52w"),
                     high_52w=cached.get("high_52w"),
@@ -207,7 +228,7 @@ class YFinanceProvider(DataProvider):
                     except Exception:
                         pass
 
-                    cached = cache.get_history(sym_upper)
+                    cached = self.cache.get_history(sym_upper)
                     if cached is not None and cached.get("last_updated") == today_str:
                         h = cached.get("history", [])
                     else:
@@ -239,9 +260,9 @@ class YFinanceProvider(DataProvider):
                         "currency": info.get("currency")
                         or t_info.get("currency", "USD"),
                     }
-                    cache.set_history(sym_upper, cache_update)
+                    self.cache.set_history(sym_upper, cache_update)
 
-                    row = builder.build_history_quote(
+                    row = self.builder.build_history_quote(
                         sym=sym_upper,
                         low_52w=cache_update["low_52w"],
                         high_52w=cache_update["high_52w"],
@@ -263,9 +284,9 @@ class YFinanceProvider(DataProvider):
                     )
 
                     # Fallback to stale cache
-                    cached = cache.get_history(sym_upper)
+                    cached = self.cache.get_history(sym_upper)
                     if cached is not None:
-                        row = builder.build_history_quote(
+                        row = self.builder.build_history_quote(
                             sym=sym_upper,
                             low_52w=cached.get("low_52w"),
                             high_52w=cached.get("high_52w"),
@@ -279,8 +300,8 @@ class YFinanceProvider(DataProvider):
                         )
                         results[sym_upper] = row
                         self._history_cache[sym_upper] = row
-                    elif not builder.is_market_open():
-                        row = builder.build_history_quote(sym_upper)
+                    elif not self.builder.is_market_open():
+                        row = self.builder.build_history_quote(sym_upper)
                         self._history_cache[sym_upper] = row
                         results[sym_upper] = row
                     elif sym_upper in self._history_cache:
@@ -290,9 +311,9 @@ class YFinanceProvider(DataProvider):
             print(f"[stiq] History fetch error (yfinance): {e}", file=sys.stderr)
             for sym in symbols_to_fetch:
                 sym_upper = sym.upper()
-                cached = cache.get_history(sym_upper)
+                cached = self.cache.get_history(sym_upper)
                 if cached is not None:
-                    row = builder.build_history_quote(
+                    row = self.builder.build_history_quote(
                         sym=sym_upper,
                         low_52w=cached.get("low_52w"),
                         high_52w=cached.get("high_52w"),
@@ -306,8 +327,8 @@ class YFinanceProvider(DataProvider):
                     )
                     results[sym_upper] = row
                     self._history_cache[sym_upper] = row
-                elif not builder.is_market_open():
-                    row = builder.build_history_quote(sym_upper)
+                elif not self.builder.is_market_open():
+                    row = self.builder.build_history_quote(sym_upper)
                     self._history_cache[sym_upper] = row
                     results[sym_upper] = row
                 elif sym_upper in self._history_cache:

@@ -22,16 +22,17 @@ import os
 from datetime import datetime
 import pytz
 
-from .events import get_event_bus
+from .events import EventBus
 
 _USAGE_DIR = os.path.expanduser("~/.stiq")
 _USAGE_FILE = os.path.join(_USAGE_DIR, "usage.json")
 
 
 class TiingoUsageTracker:
-    def __init__(self):
+    def __init__(self, event_bus: EventBus):
         self.tz = pytz.timezone("US/Eastern")
         self.lock = asyncio.Lock()
+        self.event_bus = event_bus
         self._load()
 
     def _load(self):
@@ -135,18 +136,4 @@ class TiingoUsageTracker:
             await asyncio.sleep(interval)
             async with self.lock:
                 self._save_to_disk()
-            get_event_bus().publish("tiingo_usage", self.get_usage_dict())
-
-
-tiingo_usage_tracker: TiingoUsageTracker | None = None
-
-
-def init_usage_tracker() -> None:
-    global tiingo_usage_tracker
-    tiingo_usage_tracker = TiingoUsageTracker()
-
-
-def get_usage_tracker() -> TiingoUsageTracker:
-    if tiingo_usage_tracker is None:
-        raise RuntimeError("TiingoUsageTracker not initialized")
-    return tiingo_usage_tracker
+            self.event_bus.publish("tiingo_usage", self.get_usage_dict())

@@ -106,17 +106,3 @@ class ConfigManager:
     def set_interval(self, seconds: int) -> None:
         self.poll_interval_secs = max(60, int(seconds))
         self.save()
-
-
-config: ConfigManager | None = None
-
-
-def init_config() -> None:
-    global config
-    config = ConfigManager()
-
-
-def get_config() -> ConfigManager:
-    if config is None:
-        raise RuntimeError("Config not initialized")
-    return config

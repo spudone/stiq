@@ -22,14 +22,33 @@ import re
 import sys
 
 from .provider import DataProvider, YAHOO_MARKET_TICKERS
-from .cache import cache
-from .builder import builder
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import ConfigManager
+    from .events import EventBus
+    from .tiingo_usage import TiingoUsageTracker
+    from .cache import CacheManager
+    from .builder import QuoteBuilder
 
 _DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 
 class YahooProvider(DataProvider):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        config: "ConfigManager",
+        event_bus: "EventBus",
+        usage_tracker: "TiingoUsageTracker",
+        cache: "CacheManager",
+        builder: "QuoteBuilder",
+    ) -> None:
+        self.config = config
+        self.event_bus = event_bus
+        self.usage_tracker = usage_tracker
+        self.cache = cache
+        self.builder = builder
+
         self._market_cache = None
         self._quotes_cache = {}
         self._history_cache = {}
@@ -52,7 +71,7 @@ class YahooProvider(DataProvider):
             )
 
     async def fetch_market(self) -> dict[str, any]:
-        if not builder.is_market_open() and self._market_cache:
+        if not self.builder.is_market_open() and self._market_cache:
             return self._market_cache
 
         symbols = list(YAHOO_MARKET_TICKERS.values())
@@ -77,11 +96,13 @@ class YahooProvider(DataProvider):
                             if prev_close and prev_close != 0
                             else 0.0
                         )
-                    indices.append(builder.build_market_index(name, price, change_pct))
+                    indices.append(
+                        self.builder.build_market_index(name, price, change_pct)
+                    )
                 except Exception:
                     indices.append({"name": name, "value": None, "change": 0.0})
 
-            result = {"indices": indices, "is_open": builder.is_market_open()}
+            result = {"indices": indices, "is_open": self.builder.is_market_open()}
             self._market_cache = result
             return result
 
@@ -118,7 +139,7 @@ class YahooProvider(DataProvider):
         if not symbols:
             return {}
 
-        if not builder.is_market_open():
+        if not self.builder.is_market_open():
             results = {}
             all_cached = True
             for sym in symbols:
@@ -141,7 +162,7 @@ class YahooProvider(DataProvider):
             sym_upper = sym.upper()
             try:
                 r = quotes_map.get(sym_upper, {})
-                row = builder.build_realtime_quote(
+                row = self.builder.build_realtime_quote(
                     sym=sym_upper,
                     price=r.get("regularMarketPrice", 0),
                     prev_close=r.get("regularMarketPreviousClose", 0),
@@ -158,8 +179,8 @@ class YahooProvider(DataProvider):
                 print(
                     f"[stiq] Quote error for {sym_upper} (custom): {e}", file=sys.stderr
                 )
-                if not builder.is_market_open():
-                    row = builder.build_realtime_quote(sym_upper)
+                if not self.builder.is_market_open():
+                    row = self.builder.build_realtime_quote(sym_upper)
                     self._quotes_cache[sym_upper] = row
                     results[sym_upper] = row
                 elif sym_upper in self._quotes_cache:
@@ -171,7 +192,7 @@ class YahooProvider(DataProvider):
         if not symbols:
             return {}
 
-        if not builder.is_market_open():
+        if not self.builder.is_market_open():
             results = {}
             all_cached = True
             for sym in symbols:
@@ -193,7 +214,7 @@ class YahooProvider(DataProvider):
         # 1. Check cache first
         for sym in symbols:
             sym_upper = sym.upper()
-            cached = cache.get_history(sym_upper)
+            cached = self.cache.get_history(sym_upper)
 
             # Cache hit: it has today's date AND Yahoo metrics (we check 'currency' which Yahoo always sets)
             if (
@@ -201,7 +222,7 @@ class YahooProvider(DataProvider):
                 and cached.get("last_updated") == today_str
                 and cached.get("currency") is not None
             ):
-                row = builder.build_history_quote(
+                row = self.builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=cached.get("low_52w"),
                     high_52w=cached.get("high_52w"),
@@ -232,7 +253,7 @@ class YahooProvider(DataProvider):
             try:
                 r = quotes_map.get(sym_upper, {})
 
-                cached = cache.get_history(sym_upper)
+                cached = self.cache.get_history(sym_upper)
                 if cached is not None and cached.get("last_updated") == today_str:
                     history_arr = cached.get("history", [])
                 else:
@@ -251,9 +272,9 @@ class YahooProvider(DataProvider):
                     "market_cap": r.get("marketCap"),
                     "currency": r.get("currency", "USD"),
                 }
-                cache.set_history(sym_upper, cache_update)
+                self.cache.set_history(sym_upper, cache_update)
 
-                row = builder.build_history_quote(
+                row = self.builder.build_history_quote(
                     sym=sym_upper,
                     low_52w=r.get("fiftyTwoWeekLow"),
                     high_52w=r.get("fiftyTwoWeekHigh"),
@@ -275,9 +296,9 @@ class YahooProvider(DataProvider):
                 )
 
                 # 3. Fallback to stale cache if API failed
-                cached = cache.get_history(sym_upper)
+                cached = self.cache.get_history(sym_upper)
                 if cached is not None:
-                    row = builder.build_history_quote(
+                    row = self.builder.build_history_quote(
                         sym=sym_upper,
                         low_52w=cached.get("low_52w"),
                         high_52w=cached.get("high_52w"),
@@ -291,8 +312,8 @@ class YahooProvider(DataProvider):
                     )
                     results[sym_upper] = row
                     self._history_cache[sym_upper] = row
-                elif not builder.is_market_open():
-                    row = builder.build_history_quote(sym_upper)
+                elif not self.builder.is_market_open():
+                    row = self.builder.build_history_quote(sym_upper)
                     self._history_cache[sym_upper] = row
                     results[sym_upper] = row
                 elif sym_upper in self._history_cache:

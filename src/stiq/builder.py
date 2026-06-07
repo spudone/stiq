@@ -103,6 +103,3 @@ class QuoteBuilder:
             "value": price,
             "change": change_pct,
         }
-
-
-builder = QuoteBuilder()
