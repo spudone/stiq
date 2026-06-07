@@ -76,17 +76,32 @@ class ConfigManager:
         except Exception:
             pass
 
-    def add(self, sym: str) -> None:
+    def get_config(self) -> dict:
+        return {
+            "symbols": self.watchlist,
+            "poll_interval_secs": self.poll_interval_secs,
+            "quotes_provider": self.quotes_provider,
+            "market_provider": self.market_provider,
+            "history_provider": self.history_provider,
+            "use_rate_limit": self.use_rate_limit,
+            "tiingo_threshold_level": self.tiingo_threshold_level,
+        }
+
+    def add_symbol(self, sym: str) -> bool:
         sym_upper = sym.upper()
         if sym_upper not in self.watchlist:
             self.watchlist.append(sym_upper)
             self.save()
+            return True
+        return False
 
-    def remove(self, sym: str) -> None:
+    def remove_symbol(self, sym: str) -> bool:
         sym_upper = sym.upper()
         if sym_upper in self.watchlist:
             self.watchlist.remove(sym_upper)
             self.save()
+            return True
+        return False
 
     def set_interval(self, seconds: int) -> None:
         self.poll_interval_secs = max(60, int(seconds))
