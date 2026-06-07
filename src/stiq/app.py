@@ -150,7 +150,10 @@ app.state.port = 8123
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this to your UI origin
+    allow_origins=[
+        f"http://127.0.0.1:{app.state.port}",
+        f"http://localhost:{app.state.port}",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
