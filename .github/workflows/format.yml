@@ -19,7 +19,7 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.14
 
       - name: Run Ruff Formatter
         run: uv run --with ruff ruff format .
