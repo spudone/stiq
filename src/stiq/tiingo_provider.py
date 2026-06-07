@@ -25,7 +25,7 @@ from typing import Any
 from .provider import DataProvider
 from .builder import builder
 from .async_tiingo import AsyncTiingoClient
-from .config import config
+from .config import get_config
 
 
 class TiingoWebSocketProvider(DataProvider):
@@ -112,11 +112,11 @@ class TiingoWebSocketProvider(DataProvider):
         self._iex_cache[ticker] = normalized
         self._quotes_cache[ticker] = normalized
 
-        from .events import event_bus
+        from .events import get_event_bus
 
         publish_data = dict(normalized)
         publish_data["quote"] = ticker
-        event_bus.publish("quote", publish_data)
+        get_event_bus().publish("quote", publish_data)
 
     async def _ensure_started(self) -> None:
         """Starts connection tasks on the active asyncio loop when first accessed."""
@@ -131,7 +131,7 @@ class TiingoWebSocketProvider(DataProvider):
         """Collect all equity tickers we need from the IEX feed."""
         tickers: set[str] = set()
         try:
-            for sym in config.watchlist:
+            for sym in get_config().watchlist:
                 tickers.add(sym.upper())
         except Exception:
             pass

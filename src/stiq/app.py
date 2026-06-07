@@ -7,7 +7,8 @@ import sys
 import webbrowser
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request, Query, Response
+from typing import List
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,8 +20,12 @@ from stiq.schemas import (
     WatchlistAddRequest,
     WatchlistRemoveRequest,
     WatchlistIntervalRequest,
+    UnifiedQuote,
 )
-from stiq.provider import get_provider
+from .config import init_config, get_config
+from .events import init_event_bus, get_event_bus
+from .tiingo_usage import init_usage_tracker, get_usage_tracker
+from stiq.provider import get_provider, DataProvider
 from stiq.config import ConfigManager
 from stiq.events import EventBus
 from stiq.tiingo_usage import TiingoUsageTracker
@@ -40,10 +45,10 @@ def resource_path(relative_path: str) -> str:
 # --- Lifecycle Management ---
 
 # Global components
-config_manager = ConfigManager()
-event_bus = EventBus()
-usage_tracker = TiingoUsageTracker()
-provider = get_provider()
+config_manager: ConfigManager | None = None
+event_bus: EventBus | None = None
+usage_tracker: TiingoUsageTracker | None = None
+provider: DataProvider | None = None
 
 
 def launch_app_window(url: str) -> None:
@@ -123,6 +128,25 @@ async def background_poller():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Filter out favicon.ico requests from uvicorn logs
+    import logging
+
+    class EndpointFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "GET /favicon.ico" not in record.getMessage()
+
+    logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+
+    global config_manager, event_bus, usage_tracker, provider
+    init_config()
+    init_event_bus()
+    init_usage_tracker()
+
+    config_manager = get_config()
+    event_bus = get_event_bus()
+    usage_tracker = get_usage_tracker()
+    provider = get_provider()
+
     # Startup — launch the Chrome app window before starting background tasks
     url = f"http://127.0.0.1:{app.state.port}/index.html"
     launch_app_window(url)
@@ -196,10 +220,11 @@ async def get_market():
     return await provider.fetch_market()
 
 
-@app.get("/api/quotes")
-async def get_quotes(symbols: str):
+@app.get("/api/quotes", response_model=List[UnifiedQuote])
+async def get_quotes(symbols: str = Query(..., min_length=1)):
     """Fetch quotes for symbols, merging realtime data with historical data."""
     symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+
     realtime_data = await provider.fetch_quotes(symbol_list)
     history_data = await provider.fetch_history(symbol_list)
 
@@ -253,12 +278,24 @@ async def remove_from_watchlist(
     if symbol is None and payload is None:
         form = await request.form()
         symbol = form.get("symbol")
-    symbol = (symbol or (payload.symbol if payload else "")).strip().upper()
-    if not symbol:
+    symbol_str = (symbol or (payload.symbol if payload else "")).strip().upper()
+    if not symbol_str:
         raise HTTPException(status_code=400, detail="Symbol is required")
-    if not config_manager.remove_symbol(symbol):
-        raise HTTPException(status_code=400, detail="Symbol not in watchlist")
-    return {"success": True, "symbol": symbol}
+
+    removed = []
+    not_found = []
+    for s in symbol_str.split(","):
+        s = s.strip()
+        if not s:
+            continue
+        if config_manager.remove_symbol(s):
+            removed.append(s)
+        else:
+            not_found.append(s)
+
+    if not removed and not_found:
+        raise HTTPException(status_code=400, detail="Symbols not in watchlist")
+    return {"success": True, "removed": removed, "not_found": not_found}
 
 
 @app.post("/api/watchlist/interval")
@@ -296,13 +333,21 @@ async def stream_events():
         event_bus.subscribe(queue)
         try:
             while True:
-                event = await queue.get()
-                yield {"data": json.dumps(event)}
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield {"data": json.dumps(event)}
+                except asyncio.TimeoutError:
+                    yield {"comment": "ping"}
         except asyncio.CancelledError:
             event_bus.unsubscribe(queue)
             raise
 
     return EventSourceResponse(event_generator())
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 
 # --- Static Files ---
@@ -320,12 +365,14 @@ def _find_web_dir() -> str:
         candidate = os.path.join(sys._MEIPASS, "web")
         if os.path.isdir(candidate):
             return candidate
-    # Development: web/ is at project root (parent of parent of this file)
-    candidate = str(
-        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web"))
-    )
-    if os.path.isdir(candidate):
-        return candidate
+    # Development: check relative to module first, then fallback to cwd
+    candidates = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "web")),
+        os.path.abspath(os.path.join(os.getcwd(), "web")),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
     # Fallback: look for web/ in the bundle root
     return resource_path("web")
 
