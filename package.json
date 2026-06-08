@@ -1,0 +1,11 @@
+{
+  "name": "stiq",
+  "private": true,
+  "description": "Dummy package.json for Dependabot to track frontend dependency versions",
+  "devDependencies": {
+    "alpinejs": "3.14.3",
+    "apexcharts": "4.3.0",
+    "htmx.org": "2.0.4",
+    "tailwindcss": "4.3.0"
+  }
+}

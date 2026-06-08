@@ -22,7 +22,18 @@ import platform
 import urllib.request
 import stat
 
-TAILWIND_VERSION = "v4.3.0"  # Target version
+import json
+import re
+
+# Read target version from package.json (managed by Dependabot)
+package_json_path = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "package.json"
+)
+with open(package_json_path, "r") as f:
+    package_data = json.load(f)
+    # Remove any prefix like ^ or ~
+    raw_version = re.sub(r"^[^\d]+", "", package_data["devDependencies"]["tailwindcss"])
+    TAILWIND_VERSION = f"v{raw_version}"
 
 
 def get_tailwind():
