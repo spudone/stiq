@@ -1,4 +1,4 @@
-.PHONY: setup build lint format run clean dist-clean dist watch
+.PHONY: setup build lint format test run clean dist-clean dist watch
 
 USE_RATE_LIMIT ?= 1
 export USE_RATE_LIMIT
@@ -38,6 +38,11 @@ lint:
 format:
 	@echo "Formatting code (Ruff)..."
 	uv run --with ruff ruff format .
+
+# Run unit tests
+test: setup
+	@echo "Running tests (pytest)..."
+	uv run pytest tests/
 
 # Launch the application (Runs lint automatically before booting)
 run: setup build lint

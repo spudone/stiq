@@ -2,7 +2,6 @@ import pytest
 import asyncio
 from stiq.events import EventBus
 
-
 @pytest.mark.asyncio
 async def test_event_bus_pub_sub():
     bus = EventBus()
@@ -32,7 +31,6 @@ async def test_event_bus_pub_sub():
     msg2_again = await queue2.get()
     assert msg2_again == {"type": "quotes", "data": [{"symbol": "AAPL"}]}
     assert queue1.empty()
-
 
 @pytest.mark.asyncio
 async def test_event_bus_queue_full():

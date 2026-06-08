@@ -14,13 +14,7 @@ def builder():
 def test_build_realtime_quote(builder):
     # Test typical values
     result = builder.build_realtime_quote(
-        sym="aapl",
-        price=150.0,
-        prev_close=145.0,
-        open=146.0,
-        high=151.0,
-        low=144.0,
-        volume=1000.0,
+        sym="aapl", price=150.0, prev_close=145.0, open=146.0, high=151.0, low=144.0, volume=1000.0
     )
     assert result["quote"] == "AAPL"
     assert result["last"] == 150.0
@@ -47,7 +41,7 @@ def test_build_history_quote(builder):
         high_52w=160.0,
         avg_volume=2000.0,
         currency="EUR",
-        history=[140.0, 145.0, 150.0],
+        history=[140.0, 145.0, 150.0]
     )
     assert result["quote"] == "AAPL"
     assert result["low52"] == 120.0

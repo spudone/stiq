@@ -36,7 +36,7 @@ def test_config_load_existing(temp_config_dir):
         "market_provider": "yfinance",
         "quotes_provider": "tiingo",
         "history_provider": "yfinance",
-        "use_rate_limit": False,
+        "use_rate_limit": False
     }
     config_file = os.path.join(temp_config_dir, "config.json")
     with open(config_file, "w") as f:
@@ -44,7 +44,7 @@ def test_config_load_existing(temp_config_dir):
 
     config = ConfigManager()
 
-    assert config.watchlist == ["AAPL", "MSFT"]  # should upper case
+    assert config.watchlist == ["AAPL", "MSFT"] # should upper case
     assert config.poll_interval_secs == 120
     assert config.market_provider == "yfinance"
     assert config.quotes_provider == "tiingo"

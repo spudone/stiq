@@ -34,9 +34,7 @@ async def test_multiplex_provider_routing():
     history_prov.fetch_history_mock.return_value = {"AAPL": {"history": [100.0]}}
 
     # Create multiplexer
-    multiplex = MultiplexProvider(
-        market=market_prov, quotes=quotes_prov, history=history_prov
-    )
+    multiplex = MultiplexProvider(market=market_prov, quotes=quotes_prov, history=history_prov)
 
     # Test market routing
     mkt = await multiplex.fetch_market()
