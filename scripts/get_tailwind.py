@@ -21,9 +21,11 @@ import sys
 import platform
 import urllib.request
 import stat
-
 import json
 import re
+import ssl
+import time
+import shutil
 
 # Read target version from package.json (managed by Dependabot)
 package_json_path = os.path.join(
@@ -70,37 +72,49 @@ def get_tailwind():
     print(f"Downloading Tailwind CSS binary for {system}/{machine}...")
     print(f"URL: {url}")
 
-    try:
+    max_retries = 3
+    success = False
+
+    for attempt in range(1, max_retries + 1):
         try:
-            urllib.request.urlretrieve(url, target_name)
+            with urllib.request.urlopen(url, timeout=30) as response:
+                with open(target_name, "wb") as out_file:
+                    shutil.copyfileobj(response, out_file)
+            success = True
+            break
         except Exception as e:
-            if "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e):
+            is_ssl_err = "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e)
+            if is_ssl_err:
                 print(
                     "SSL certificate verification failed. Retrying with unverified context..."
                 )
-                import ssl
-                import shutil
+                try:
+                    ctx = ssl.create_default_context()
+                    ctx.check_hostname = False
+                    ctx.verify_mode = ssl.CERT_NONE
+                    with urllib.request.urlopen(
+                        url, context=ctx, timeout=30
+                    ) as response:
+                        with open(target_name, "wb") as out_file:
+                            shutil.copyfileobj(response, out_file)
+                    success = True
+                    break
+                except Exception as inner_e:
+                    e = inner_e
 
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                with (
-                    urllib.request.urlopen(url, context=ctx) as response,
-                    open(target_name, "wb") as out_file,
-                ):
-                    shutil.copyfileobj(response, out_file)
+            print(f"Attempt {attempt}/{max_retries} failed to download: {e}")
+            if attempt < max_retries:
+                time.sleep(2)
             else:
-                raise e
+                print(f"Error downloading binary after {max_retries} attempts: {e}")
+                sys.exit(1)
 
+    if success:
         # Make executable on non-Windows
         if system != "windows":
             st = os.stat(target_name)
             os.chmod(target_name, st.st_mode | stat.S_IEXEC)
-
         print(f"Successfully downloaded and configured {target_name}")
-    except Exception as e:
-        print(f"Error downloading binary: {e}")
-        sys.exit(1)
 
 
 if __name__ == "__main__":
