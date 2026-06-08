@@ -26,6 +26,8 @@ $(TAILWIND_BIN):
 build: $(TAILWIND_BIN)
 	@echo "Building CSS..."
 	./$(TAILWIND_BIN) -i web/input.css -o web/style.css
+	@echo "Building HTML..."
+	uv run python3 scripts/build_html.py
 
 # Run Ruff linter to catch syntax errors and bugs
 lint:
@@ -57,7 +59,7 @@ clean:
 	@echo "Cleaning up build artifacts..."
 	uv run python3 -c "import shutil, os; \
 		[shutil.rmtree(p) for p in ['build', 'dist', '.venv'] if os.path.exists(p)]; \
-		[os.remove(f) for f in ['stiq.spec', 'web/style.css'] if os.path.exists(f)]"
+		[os.remove(f) for f in ['stiq.spec', 'web/style.css', 'web/index.html'] if os.path.exists(f)]"
 
 # Deep cleanup (removes everything including tailwind binary)
 dist-clean: clean

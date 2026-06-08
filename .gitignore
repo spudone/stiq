@@ -7,8 +7,9 @@ __pycache__/
 tailwindcss
 tailwindcss.exe
 
-# Compiled CSS (regenerated from input.css)
+# Generated frontend assets
 web/style.css
+web/index.html
 
 # PyInstaller / Distribution
 build/
