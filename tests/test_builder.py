@@ -1,6 +1,6 @@
 import pytest
 import pytz
-from datetime import datetime, date
+from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 from stiq.builder import QuoteBuilder
