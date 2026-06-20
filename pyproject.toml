@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13.13"
 dependencies = [
     "aiohttp>=3.14.1",
-    "fastapi>=0.136.3",
-    "holidays>=0.97",
+    "fastapi>=0.138.0",
+    "holidays>=0.99",
     "pyinstaller>=6.21.0",
     "pytz>=2026.2",
     "setuptools>=82.0.1",
@@ -40,6 +40,6 @@ package = true
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.0",
+    "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
 ]
