@@ -38,8 +38,9 @@ class QuoteBuilder:
             return False
 
         # Standard hours: 9:30 AM to 4:00 PM EST
-        # (Using 9 <= hour < 16 acts as 9:00 AM - 4:00 PM, which is a good baseline)
-        return 9 <= now_et.hour < 16
+        start_time = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+        end_time = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+        return start_time <= now_et < end_time
 
     def build_realtime_quote(
         self,

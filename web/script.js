@@ -134,11 +134,8 @@ function stiq() {
       // Connect to Server-Sent Events stream
       this.setupSSE();
 
-      // Notify backend when window is closed
-      window.addEventListener("beforeunload", () => {
-        navigator.sendBeacon("/api/shutdown");
-      });
-      
+
+
       if (this.quotesProvider === "tiingo") {
         setInterval(() => {
           this.lastUpdated = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
