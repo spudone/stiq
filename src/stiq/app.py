@@ -168,6 +168,7 @@ async def lifespan(app: FastAPI):
     app.state.cache = cache_manager
     app.state.builder = builder
     app.state.provider = provider
+    app.state.shutdown_timer = None
 
     # Startup — launch the Chrome app window after a brief delay
     # so Uvicorn can finish the lifespan and start accepting requests
@@ -366,21 +367,29 @@ async def update_interval(
     return {"success": True, "interval": seconds_val}
 
 
-async def delayed_exit(delay_secs: float):
+async def delayed_exit(
+    delay_secs: float, usage_tracker: TiingoUsageTracker | None = None
+):
     await asyncio.sleep(delay_secs)
+    if usage_tracker:
+        try:
+            usage_tracker.save()
+        except Exception as e:
+            print(f"[stiq] Error saving usage tracker: {e}", file=sys.stderr)
     os._exit(0)
 
 
-@app.post("/api/shutdown")
-async def shutdown(usage_tracker: TiingoUsageTracker = Depends(get_usage_tracker_dep)):
-    print("[stiq] Shutting down...")
-    usage_tracker.save()
-    asyncio.create_task(delayed_exit(0.5))
-    return {"success": True}
-
-
 @app.get("/api/stream")
-async def stream_events(event_bus: EventBus = Depends(get_event_bus_dep)):
+async def stream_events(
+    request: Request, event_bus: EventBus = Depends(get_event_bus_dep)
+):
+    # Cancel any pending shutdown timer — a client just connected
+    timer = getattr(request.app.state, "shutdown_timer", None)
+    if timer and not timer.done():
+        print("[stiq] Client reconnected, cancelling pending shutdown.")
+        timer.cancel()
+        request.app.state.shutdown_timer = None
+
     async def event_generator():
         queue: asyncio.Queue = asyncio.Queue()
         event_bus.subscribe(queue)
@@ -392,8 +401,15 @@ async def stream_events(event_bus: EventBus = Depends(get_event_bus_dep)):
                 except asyncio.TimeoutError:
                     yield {"comment": "ping"}
         except asyncio.CancelledError:
+            pass
+        finally:
             event_bus.unsubscribe(queue)
-            raise
+            if len(event_bus.subscribers) == 0:
+                print("[stiq] Last SSE client disconnected. Shutting down in 3s...")
+                usage_tracker = getattr(request.app.state, "usage_tracker", None)
+                request.app.state.shutdown_timer = asyncio.create_task(
+                    delayed_exit(3.0, usage_tracker)
+                )
 
     return EventSourceResponse(event_generator())
 

@@ -82,10 +82,18 @@ def test_is_market_open(mock_dt, builder):
     mock_dt.date = MagicMock()
     assert builder.is_market_open() is True
 
-    # 2. Test normal weekday, closed hours (Tuesday, 8:00 AM)
+    # 2. Test normal weekday, closed hours (Tuesday, 8:00 AM and 9:15 AM)
     dt_closed_early = et.localize(datetime(2026, 3, 3, 8, 0, 0))
     mock_dt.now.return_value = dt_closed_early
     assert builder.is_market_open() is False
+
+    dt_closed_915 = et.localize(datetime(2026, 3, 3, 9, 15, 0))
+    mock_dt.now.return_value = dt_closed_915
+    assert builder.is_market_open() is False
+
+    dt_open_930 = et.localize(datetime(2026, 3, 3, 9, 30, 0))
+    mock_dt.now.return_value = dt_open_930
+    assert builder.is_market_open() is True
 
     # 3. Test normal weekday, closed hours (Tuesday, 5:00 PM)
     dt_closed_late = et.localize(datetime(2026, 3, 3, 17, 0, 0))
