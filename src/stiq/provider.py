@@ -21,11 +21,11 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .builder import QuoteBuilder
+    from .cache import CacheManager
     from .config import ConfigManager
     from .events import EventBus
     from .tiingo_usage import TiingoUsageTracker
-    from .cache import CacheManager
-    from .builder import QuoteBuilder
 
 YAHOO_MARKET_TICKERS = {
     "Dow": "^DJI",

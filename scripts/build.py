@@ -16,10 +16,10 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import sys
-import subprocess
-import platform
 import os
+import platform
+import subprocess
+import sys
 
 # ELF Program Header Constants
 # PT_GNU_STACK signature (0x6474e551 little-endian)

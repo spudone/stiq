@@ -16,22 +16,22 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import os
-import sys
-import platform
-import urllib.request
-import stat
 import json
+import os
+import platform
 import re
-import ssl
-import time
 import shutil
+import ssl
+import stat
+import sys
+import time
+import urllib.request
 
 # Read target version from package.json (managed by Dependabot)
 package_json_path = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "package.json"
 )
-with open(package_json_path, "r") as f:
+with open(package_json_path) as f:
     package_data = json.load(f)
     # Remove any prefix like ^ or ~
     raw_version = re.sub(r"^[^\d]+", "", package_data["devDependencies"]["tailwindcss"])

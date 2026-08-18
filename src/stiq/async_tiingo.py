@@ -16,20 +16,21 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import aiohttp
 import asyncio
 import json
 import os
 import sys
 import urllib.parse
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
+import aiohttp
 import websockets
-from datetime import datetime, timedelta, date
-from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .cache import CacheManager
     from .config import ConfigManager
     from .tiingo_usage import TiingoUsageTracker
-    from .cache import CacheManager
 
 
 class TiingoAPIError(Exception):
@@ -126,7 +127,7 @@ class AsyncTiingoClient:
 
         max_retries = 3
         retry_delay = 1.0
-        for attempt in range(max_retries):
+        for _ in range(max_retries):
             async with self._session.get(url, params=params) as response:
                 if response.status == 428:
                     await asyncio.sleep(retry_delay)

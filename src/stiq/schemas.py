@@ -1,9 +1,26 @@
-from typing import List, Optional
+"""
+Stiq - Stock Ticker
+Copyright (C) 2026 spudone
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 from pydantic import BaseModel, Field
 
 
 class WatchlistConfig(BaseModel):
-    symbols: List[str]
+    symbols: list[str]
     poll_interval_secs: int = Field(default=300, ge=60)
     quotes_provider: str
     market_provider: str
@@ -25,7 +42,7 @@ class MarketIndex(BaseModel):
 
 
 class MarketResponse(BaseModel):
-    indices: List[MarketIndex]
+    indices: list[MarketIndex]
     is_open: bool
 
 
@@ -42,15 +59,15 @@ class RealtimeQuote(BaseModel):
 
 class HistoricalQuote(BaseModel):
     quote: str
-    low52: Optional[float] = None
-    high52: Optional[float] = None
-    avgVolume: Optional[float] = None
-    peRatio: Optional[float] = None
-    dividend: Optional[float] = None
-    dividend_yield: Optional[float] = None
-    marketCap: Optional[float] = None
+    low52: float | None = None
+    high52: float | None = None
+    avgVolume: float | None = None
+    peRatio: float | None = None
+    dividend: float | None = None
+    dividend_yield: float | None = None
+    marketCap: float | None = None
     currency: str = "USD"
-    history: List[float] = []
+    history: list[float] = []
 
 
 class UnifiedQuote(RealtimeQuote, HistoricalQuote):
