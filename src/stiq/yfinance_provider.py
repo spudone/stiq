@@ -17,16 +17,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import asyncio
-from .provider import DataProvider, YAHOO_MARKET_TICKERS
 from typing import TYPE_CHECKING
 
+from .provider import YAHOO_MARKET_TICKERS, DataProvider
+
 if TYPE_CHECKING:
+    from .builder import QuoteBuilder
+    from .cache import CacheManager
     from .config import ConfigManager
     from .events import EventBus
     from .tiingo_usage import TiingoUsageTracker
-    from .cache import CacheManager
-    from .builder import QuoteBuilder
 import sys
+
 import yfinance as yf
 
 
@@ -63,7 +65,7 @@ class YFinanceProvider(DataProvider):
             tickers = yf.Tickers(" ".join(symbols))
             indices = []
 
-            for sym, name in zip(symbols, names):
+            for sym, name in zip(symbols, names, strict=True):
                 try:
                     t = tickers.tickers[sym]
                     info = t.fast_info

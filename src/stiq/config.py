@@ -16,8 +16,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import os
 import json
+import os
 
 
 class ConfigManager:
@@ -36,7 +36,7 @@ class ConfigManager:
     def _load(self) -> None:
         if os.path.exists(self.file):
             try:
-                with open(self.file, "r") as f:
+                with open(self.file) as f:
                     data = json.load(f)
                     self.watchlist = [s.upper() for s in data.get("watchlist", [])]
                     self.poll_interval_secs = max(

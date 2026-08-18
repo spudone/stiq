@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 from datetime import datetime
+
 import pytz
 
 from .events import EventBus
@@ -39,7 +40,7 @@ class TiingoUsageTracker:
         data = {}
         if os.path.exists(_USAGE_FILE):
             try:
-                with open(_USAGE_FILE, "r") as f:
+                with open(_USAGE_FILE) as f:
                     data = json.load(f)
             except Exception:
                 pass

@@ -16,20 +16,21 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import aiohttp
 import asyncio
 import re
 import sys
-
-from .provider import DataProvider, YAHOO_MARKET_TICKERS
 from typing import TYPE_CHECKING
 
+import aiohttp
+
+from .provider import YAHOO_MARKET_TICKERS, DataProvider
+
 if TYPE_CHECKING:
+    from .builder import QuoteBuilder
+    from .cache import CacheManager
     from .config import ConfigManager
     from .events import EventBus
     from .tiingo_usage import TiingoUsageTracker
-    from .cache import CacheManager
-    from .builder import QuoteBuilder
 
 _DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -84,7 +85,7 @@ class YahooProvider(DataProvider):
             }
             indices = []
 
-            for sym, name in zip(symbols, names):
+            for sym, name in zip(symbols, names, strict=True):
                 try:
                     q = quotes_map.get(sym.upper(), {})
                     price = q.get("regularMarketPrice", 0)

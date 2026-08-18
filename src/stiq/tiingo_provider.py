@@ -20,16 +20,17 @@ import asyncio
 import json
 import os
 import sys
-from typing import Any, TYPE_CHECKING
-from .provider import DataProvider
+from typing import TYPE_CHECKING, Any
+
 from .async_tiingo import AsyncTiingoClient
+from .provider import DataProvider
 
 if TYPE_CHECKING:
+    from .builder import QuoteBuilder
+    from .cache import CacheManager
     from .config import ConfigManager
     from .events import EventBus
     from .tiingo_usage import TiingoUsageTracker
-    from .cache import CacheManager
-    from .builder import QuoteBuilder
 
 
 class TiingoWebSocketProvider(DataProvider):
@@ -169,7 +170,7 @@ class TiingoWebSocketProvider(DataProvider):
 
         try:
             if os.path.exists(cache_file):
-                with open(cache_file, "r") as f:
+                with open(cache_file) as f:
                     data = json.load(f)
                     self._iex_cache = data.get("iex", {})
                 return

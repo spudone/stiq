@@ -16,9 +16,8 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import os
 import json
-
+import os
 
 # Unified schema shared by all providers
 UNIFIED_HISTORY_FIELDS = {
@@ -50,7 +49,7 @@ class CacheManager:
     def _load(self) -> None:
         if os.path.exists(self.file):
             try:
-                with open(self.file, "r") as f:
+                with open(self.file) as f:
                     content = json.load(f)
                     if not content:
                         return

@@ -1,34 +1,55 @@
+"""
+Stiq - Stock Ticker
+Copyright (C) 2026 spudone
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 import asyncio
 import json
 import os
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 import webbrowser
-import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import Body, FastAPI, HTTPException, Request, Query, Response, Depends
-from typing import List
-from fastapi.responses import JSONResponse
+from datetime import datetime
+from typing import Annotated
+
+import uvicorn
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
-from stiq.schemas import (
-    WatchlistConfig,
-    TiingoUsage,
-    WatchlistAddRequest,
-    WatchlistRemoveRequest,
-    WatchlistIntervalRequest,
-    UnifiedQuote,
-)
-from stiq.provider import create_provider, DataProvider
-from stiq.config import ConfigManager
-from stiq.events import EventBus
-from stiq.tiingo_usage import TiingoUsageTracker
 from stiq.builder import QuoteBuilder
 from stiq.cache import CacheManager
-from datetime import datetime
+from stiq.config import ConfigManager
+from stiq.events import EventBus
+from stiq.provider import DataProvider, create_provider
+from stiq.schemas import (
+    TiingoUsage,
+    UnifiedQuote,
+    WatchlistAddRequest,
+    WatchlistConfig,
+    WatchlistIntervalRequest,
+    WatchlistRemoveRequest,
+)
+from stiq.tiingo_usage import TiingoUsageTracker
 
 
 def resource_path(relative_path: str) -> str:
@@ -175,9 +196,7 @@ async def lifespan(app: FastAPI):
     url = f"http://127.0.0.1:{app.state.port}/index.html"
     print(f"[stiq] Starting application on {url}")
 
-    async def wait_and_launch():
-        import urllib.request
-        import urllib.error
+    async def wait_and_launch():  # Poll the server until it responds, meaning Uvicorn is fully up
 
         # Poll the server until it responds, meaning Uvicorn is fully up
         for _ in range(50):
@@ -252,26 +271,30 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/api/watchlist", response_model=WatchlistConfig)
-async def get_watchlist(config: ConfigManager = Depends(get_config_dep)):
+async def get_watchlist(
+    config: Annotated[ConfigManager, Depends(get_config_dep)],
+):
     return config.get_config()
 
 
 @app.get("/api/tiingo_usage", response_model=TiingoUsage)
 async def get_tiingo_usage(
-    usage_tracker: TiingoUsageTracker = Depends(get_usage_tracker_dep),
+    usage_tracker: Annotated[TiingoUsageTracker, Depends(get_usage_tracker_dep)],
 ):
     return usage_tracker.get_usage_dict()
 
 
 @app.get("/api/market")
-async def get_market(provider: DataProvider = Depends(get_provider_dep)):
+async def get_market(
+    provider: Annotated[DataProvider, Depends(get_provider_dep)],
+):
     return await provider.fetch_market()
 
 
-@app.get("/api/quotes", response_model=List[UnifiedQuote])
+@app.get("/api/quotes", response_model=list[UnifiedQuote])
 async def get_quotes(
-    symbols: str = Query(..., min_length=1),
-    provider: DataProvider = Depends(get_provider_dep),
+    symbols: Annotated[str, Query(min_length=1)],
+    provider: Annotated[DataProvider, Depends(get_provider_dep)],
 ):
     """Fetch quotes for symbols, merging realtime data with historical data."""
     symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
@@ -292,7 +315,10 @@ async def get_quotes(
 
 
 @app.get("/api/history")
-async def get_history(symbols: str, provider: DataProvider = Depends(get_provider_dep)):
+async def get_history(
+    symbols: str,
+    provider: Annotated[DataProvider, Depends(get_provider_dep)],
+):
     """Fetch history for symbols."""
     symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
     history_data = await provider.fetch_history(symbol_list)
@@ -302,9 +328,9 @@ async def get_history(symbols: str, provider: DataProvider = Depends(get_provide
 @app.post("/api/watchlist/add")
 async def add_to_watchlist(
     request: Request,
-    payload: WatchlistAddRequest | None = Body(default=None),
+    config: Annotated[ConfigManager, Depends(get_config_dep)],
+    payload: Annotated[WatchlistAddRequest | None, Body()] = None,
     symbol: str | None = None,
-    config: ConfigManager = Depends(get_config_dep),
 ):
     # Accept symbol from JSON body, query param, or form field
     if symbol is None and payload is None:
@@ -324,9 +350,9 @@ async def add_to_watchlist(
 @app.post("/api/watchlist/remove")
 async def remove_from_watchlist(
     request: Request,
-    payload: WatchlistRemoveRequest | None = Body(default=None),
+    config: Annotated[ConfigManager, Depends(get_config_dep)],
+    payload: Annotated[WatchlistRemoveRequest | None, Body()] = None,
     symbol: str | None = None,
-    config: ConfigManager = Depends(get_config_dep),
 ):
     if symbol is None and payload is None:
         form = await request.form()
@@ -354,9 +380,9 @@ async def remove_from_watchlist(
 @app.post("/api/watchlist/interval")
 async def update_interval(
     request: Request,
-    payload: WatchlistIntervalRequest | None = Body(default=None),
+    config: Annotated[ConfigManager, Depends(get_config_dep)],
+    payload: Annotated[WatchlistIntervalRequest | None, Body()] = None,
     seconds: str | None = None,
-    config: ConfigManager = Depends(get_config_dep),
 ):
     # Accept seconds from JSON body, query param, or form field
     if seconds is None and payload is None:
@@ -381,7 +407,8 @@ async def delayed_exit(
 
 @app.get("/api/stream")
 async def stream_events(
-    request: Request, event_bus: EventBus = Depends(get_event_bus_dep)
+    request: Request,
+    event_bus: Annotated[EventBus, Depends(get_event_bus_dep)],
 ):
     # Cancel any pending shutdown timer — a client just connected
     timer = getattr(request.app.state, "shutdown_timer", None)
@@ -398,7 +425,7 @@ async def stream_events(
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15.0)
                     yield {"data": json.dumps(event)}
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield {"comment": "ping"}
         except asyncio.CancelledError:
             pass
