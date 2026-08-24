@@ -3,8 +3,8 @@
   "private": true,
   "description": "Dummy package.json for Dependabot to track frontend dependency versions",
   "devDependencies": {
-    "alpinejs": "3.16.1",
-    "apexcharts": "6.8.0",
+    "alpinejs": "3.16.2",
+    "apexcharts": "6.10.0",
     "htmx.org": "2.0.10",
     "tailwindcss": "4.3.3"
   }
